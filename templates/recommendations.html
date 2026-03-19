@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Recommendations{% endblock %}
+{% block content %}
+<h1 class="curated-title">Curated for You</h1>
+<p class="recommendations-intro">Based on your ratings and favorite genres.</p>
+
+<section class="recommendations-results">
+  {% if recommendations is defined and recommendations %}
+  <div class="recommendations-list">
+    {% for m in recommendations %}
+    <article class="recommendation-card" data-movie-id="{{ m.movie_id }}">
+      <button type="button" class="btn-favorite recommendation-card-favorite" aria-label="Add to favorites" title="Add to favorites">♡</button>
+      <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
+        <div class="poster-wrap">
+          {% if m.poster_url %}
+          <img src="{{ m.poster_url }}" alt="" loading="lazy" />
+          {% else %}
+          <div class="poster-placeholder">🎬</div>
+          {% endif %}
+        </div>
+        <div class="info">
+          <div class="title">{{ m.title }}</div>
+          <div class="meta">{{ m.release_year }}{% if m.genre_name %} · {{ m.genre_name }}{% endif %}</div>
+        </div>
+      </a>
+    </article>
+    {% endfor %}
+  </div>
+  {% elif recommendations is defined %}
+  <div class="empty-state">
+    <svg class="film-reel-icon" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2"/>
+      <circle cx="32" cy="32" r="8" stroke="currentColor" stroke-width="2"/>
+      <circle cx="32" cy="8" r="4" fill="currentColor"/>
+      <circle cx="32" cy="56" r="4" fill="currentColor"/>
+      <circle cx="8" cy="32" r="4" fill="currentColor"/>
+      <circle cx="56" cy="32" r="4" fill="currentColor"/>
+      <circle cx="50.5" cy="13.5" r="3" fill="currentColor"/>
+      <circle cx="13.5" cy="50.5" r="3" fill="currentColor"/>
+      <circle cx="13.5" cy="13.5" r="3" fill="currentColor"/>
+      <circle cx="50.5" cy="50.5" r="3" fill="currentColor"/>
+    </svg>
+    <p class="empty-message">Rate some movies to get personalized recommendations.</p>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p class="empty-message">Sign in and rate movies to see recommendations.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

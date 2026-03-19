@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1 class="hero-wordmark"><a href="{{ url_for('index') }}">MOVIE DB</a></h1>
+  <p class="hero-sub">Search · Discover · Rate</p>
+  <div class="search-card quick-search">
+    <form class="quick-search-form" action="{{ url_for('search_page') }}" method="get">
+      <input type="text" name="q" placeholder="Search movies…" value="{{ request.args.get('q', '') }}" class="quick-search-input" autofocus />
+      <button type="submit" class="quick-search-btn">Search</button>
+    </form>
+    <p class="quick-search-link">Or explore <a href="{{ url_for('search_page') }}">Advanced Search →</a></p>
+  </div>
+</section>
+
+<div class="film-strip-divider"><span class="sprocket"></span></div>
+
+<section>
+  <h2 class="section-title">Browse</h2>
+  <p class="recommendations-intro">Use Search to find movies, or go to <a href="{{ url_for('recommendations_page') }}">Recommendations</a> for personalized picks.</p>
+</section>
+{% endblock %}

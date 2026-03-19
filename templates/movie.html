@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}{{ movie.title }}{% endblock %}
+{% block content %}
+<article class="movie-detail" data-movie-id="{{ movie.movie_id }}">
+  <button type="button" class="btn-favorite movie-detail-favorite" aria-label="Add to favorites" title="Add to favorites">♡</button>
+  <div class="poster-wrap">
+    {% if movie.poster_url %}
+    <img src="{{ movie.poster_url }}" alt="" />
+    {% else %}
+    <div class="poster-placeholder">🎬</div>
+    {% endif %}
+  </div>
+  <div>
+    <h1>{{ movie.title }}</h1>
+    <p class="tagline">{{ movie.release_year }}{% if movie.genre_name %} · {{ movie.genre_name }}{% endif %}{% if movie.runtime %} · {{ movie.runtime }} min{% endif %}{% if movie.language %} · {{ movie.language }}{% endif %}</p>
+    {% if movie.description %}
+    <div class="description">{{ movie.description }}</div>
+    {% endif %}
+
+    <div class="rating-widget" data-movie-id="{{ movie.movie_id }}">
+      <h3>Your rating</h3>
+      <div class="rating-stars" aria-label="Rate 1–5 stars">
+        <button type="button" data-value="1" title="1 star">★</button>
+        <button type="button" data-value="2" title="2 stars">★</button>
+        <button type="button" data-value="3" title="3 stars">★</button>
+        <button type="button" data-value="4" title="4 stars">★</button>
+        <button type="button" data-value="5" title="5 stars">★</button>
+      </div>
+      <div class="rating-value-text">Click a star to rate.</div>
+      <div class="saved" style="display: none;">Rating saved.</div>
+    </div>
+
+    {% if cast or crew %}
+    <div class="cast-crew">
+      {% if cast %}
+      <h3>Cast</h3>
+      <div class="cast-list">
+        {% for c in cast %}
+        <span>{{ c.name }}{% if c.character_name %} <em>as {{ c.character_name }}</em>{% endif %}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if crew %}
+      <h3>Crew</h3>
+      <div class="crew-list">
+        {% for c in crew %}
+        <span>{{ c.name }} ({{ c.role }})</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</article>
+<script>
+(function() {
+  const widget = document.querySelector('.rating-widget');
+  if (!widget) return;
+  const movieId = widget.dataset.movieId;
+  const stars = widget.querySelectorAll('.rating-stars button');
+  const valueText = widget.querySelector('.rating-value-text');
+  const savedEl = widget.querySelector('.saved');
+  let currentValue = 0;
+
+  function setDisplay(value) {
+    currentValue = value;
+    stars.forEach((btn, i) => {
+      btn.classList.toggle('filled', (i + 1) <= value);
+      btn.classList.toggle('active', (i + 1) <= value);
+    });
+    valueText.textContent = value ? value + ' star' + (value > 1 ? 's' : '') + '.' : 'Click a star to rate.';
+  }
+
+  stars.forEach(btn => {
+    btn.addEventListener('click', function() {
+      const v = parseInt(this.dataset.value, 10);
+      if (!window.MovieAPI) { setDisplay(v); return; }
+      window.MovieAPI.setRating(movieId, v)
+        .then(function() {
+          setDisplay(v);
+          if (savedEl) { savedEl.style.display = 'block'; setTimeout(function() { savedEl.style.display = 'none'; }, 2000); }
+        })
+        .catch(function() { valueText.textContent = 'Could not save rating.'; });
+    });
+  });
+
+  if (window.MovieAPI && movieId) {
+    window.MovieAPI.getRating(movieId).then(function(r) {
+      if (r && r.rating_value) setDisplay(r.rating_value);
+    }).catch(function() {});
+  }
+})();
+</script>
+{% endblock %}

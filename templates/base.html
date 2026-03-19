@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Movie DB{% endblock %} | COP4710</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <!-- Film grain overlay (noise texture) -->
+  <div class="grain-overlay" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+      <filter id="grain">
+        <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="4" stitchTiles="stitch" />
+      </filter>
+      <rect width="100%" height="100%" filter="url(#grain)" fill="transparent" />
+    </svg>
+  </div>
+
+  <header class="app-header">
+    <div class="container">
+      <div class="logo"><a href="{{ url_for('index') }}">Movie DB</a></div>
+      <button class="nav-toggle" type="button" aria-label="Toggle menu" aria-expanded="false">☰</button>
+      <nav class="nav-links" id="nav-links">
+        <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">Home</a>
+        <a href="{{ url_for('search_page') }}" class="{% if request.endpoint == 'search_page' %}active{% endif %}">Search</a>
+        <a href="{{ url_for('recommendations_page') }}" class="{% if request.endpoint == 'recommendations_page' %}active{% endif %}">Recommendations</a>
+        <a href="{{ url_for('favorites_page') }}" class="{% if request.endpoint == 'favorites_page' %}active{% endif %}">Favorites</a>
+        <span class="auth-badge">{% if current_user %}Logged in{% else %}Guest{% endif %}</span>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="container">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+  <footer class="app-footer">
+    <div class="footer-marquee">
+      <div class="footer-marquee-inner">
+        <span>Drama</span><span>·</span><span>Thriller</span><span>·</span><span>Comedy</span><span>·</span><span>Horror</span><span>·</span><span>Romance</span><span>·</span><span>Sci-Fi</span><span>·</span><span>Action</span><span>·</span><span>Documentary</span><span>·</span>
+        <span>Drama</span><span>·</span><span>Thriller</span><span>·</span><span>Comedy</span><span>·</span><span>Horror</span><span>·</span><span>Romance</span><span>·</span><span>Sci-Fi</span><span>·</span><span>Action</span><span>·</span><span>Documentary</span><span>·</span>
+      </div>
+    </div>
+    <p class="footer-copyright">COP4710 Movie DB</p>
+  </footer>
+  <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/moviedb.js') }}"></script>
+  <script>
+    (function() {
+      var btn = document.querySelector('.nav-toggle');
+      var nav = document.getElementById('nav-links');
+      if (btn && nav) {
+        btn.addEventListener('click', function() {
+          nav.classList.toggle('is-open');
+          btn.setAttribute('aria-expanded', nav.classList.contains('is-open'));
+        });
+      }
+    })();
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
