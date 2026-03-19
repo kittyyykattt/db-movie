@@ -1,7 +1,7 @@
 """
 Flask app for COP4710 Movie DB.
 Serves frontend (templates + static) and API routes for frontend integration.
-Backend developer (Mateo) will replace API logic with PostgreSQL + TMDB.
+(Mateo) will replace API logic with PostgreSQL + TMDB.
 """
 from flask import Flask, render_template, request, jsonify
 
