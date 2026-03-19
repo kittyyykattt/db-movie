@@ -1,7 +1,5 @@
 # Frontend & Data Integration (Katya Serechenko)
 
-This document describes the frontend structure and the **API contract** the Flask backend should implement so the UI works end-to-end.
-
 ## Run the app (with stub backend)
 
 ```bash
