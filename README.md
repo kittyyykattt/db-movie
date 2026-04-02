@@ -43,6 +43,6 @@ Page routes (render templates with data from your DB):
 
 ## User flow testing
 
-1. **Search**: Home or Search → enter filters → Submit → results grid → click a movie.
+1. **Search**: Home or Search -> enter filters -> Submit -> results grid -> click a movie.
 2. **Movie detail**: Poster, title, meta, description, cast/crew; star rating widget loads existing rating and saves new one via `POST /api/ratings`.
-3. **Recommendations**: Navigate to Recommendations → grid of recommended movies (or “Rate some movies…” if empty).
+3. **Recommendations**: Navigate to Recommendations -> grid of recommended movies (or "Rate some movies..." if empty).
