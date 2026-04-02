@@ -96,7 +96,7 @@
     <div class="movie-grid">
       {% for m in results %}
       <article class="movie-card" data-movie-id="{{ m.movie_id }}">
-        <button type="button" class="btn-favorite" aria-label="Add to favorites" title="Add to favorites">♡</button>
+        <button type="button" class="btn-favorite" aria-label="Save for later" title="Save for later">♡</button>
         <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
           <div class="poster-wrap">
             {% if m.poster_url %}
@@ -142,96 +142,29 @@
         <circle cx="13.5" cy="13.5" r="3" fill="currentColor"/>
         <circle cx="50.5" cy="50.5" r="3" fill="currentColor"/>
       </svg>
-      <p class="empty-message">No films in the vault.</p>
+      <p class="empty-message">No matches found yet.</p>
     </div>
     {% endif %}
   </section>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/search-ui.js') }}"></script>
 <script>
-(function() {
-  var form = document.getElementById('search-form');
-  var panel = document.getElementById('advanced-panel');
-  var toggle = document.getElementById('advanced-toggle');
-  var countEl = document.getElementById('advanced-count');
-  var actionsEl = document.getElementById('search-actions');
-  var historyEl = document.getElementById('search-history');
-
-  function countActiveFilters() {
-    var count = 0;
-    var inputs = form.querySelectorAll('input[name], select[name]');
-    inputs.forEach(function(inp) {
-      if (inp.name === 'genre') {
-        if (inp.selectedOptions && inp.selectedOptions.length) count += inp.selectedOptions.length;
-      } else if (inp.value && inp.value.trim()) count++;
+  (function() {
+    if (!window.SearchUI) return;
+    window.SearchUI.init({
+      formSelector: '#search-form',
+      panelSelector: '#advanced-panel',
+      toggleSelector: '#advanced-toggle',
+      countSelector: '#advanced-count',
+      actionsSelector: '#search-actions',
+      historySelector: '#search-history',
+      saveHistory: true,
+      savePrefs: true
     });
-    return count;
-  }
-
-  function updateUI() {
-    var n = countActiveFilters();
-    countEl.textContent = '(' + n + ')';
-    actionsEl.style.display = n > 0 ? 'block' : 'none';
-  }
-
-  if (toggle && panel) {
-    toggle.addEventListener('click', function() {
-      var open = panel.classList.toggle('is-open');
-      toggle.setAttribute('aria-expanded', open);
-    });
-  }
-
-  form.addEventListener('input', updateUI);
-  form.addEventListener('change', updateUI);
-  updateUI();
-
-  if (historyEl && window.MovieDB) {
-    var history = window.MovieDB.getSearchHistory();
-    if (history.length) {
-      var qInput = form.querySelector('input[name="q"]');
-      var html = '<p class="search-history-label">Recent:</p>';
-      history.forEach(function(term) {
-        var safeAttr = term.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-        var safeText = term.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        html += '<button type="button" class="search-history-chip" data-term="' + safeAttr + '">' + safeText + ' <span aria-hidden="true">×</span></button>';
-      });
-      historyEl.innerHTML = html;
-      historyEl.querySelectorAll('.search-history-chip').forEach(function(chip) {
-        chip.addEventListener('click', function(e) {
-          if (e.target.tagName === 'SPAN' || (e.target.closest && e.target.closest('span'))) {
-            window.MovieDB.removeSearchHistory(chip.getAttribute('data-term'));
-            chip.remove();
-          } else {
-            if (qInput) qInput.value = chip.getAttribute('data-term') || '';
-          }
-        });
-      });
-    }
-  }
-
-  if (form && window.MovieDB) {
-    form.addEventListener('submit', function() {
-      var q = (form.querySelector('input[name="q"]') || {}).value;
-      if (q && q.trim()) window.MovieDB.addSearchHistory(q.trim());
-      var prefs = window.MovieDB.getPrefs();
-      var sortBy = form.querySelector('select[name="sort_by"]');
-      var lang = form.querySelector('select[name="language"]');
-      if (sortBy && sortBy.value) window.MovieDB.setPrefs({ sortBy: sortBy.value });
-      if (lang && lang.value) window.MovieDB.setPrefs({ language: lang.value });
-    });
-  }
-
-  if (form && window.MovieDB) {
-    var prefs = window.MovieDB.getPrefs();
-    if (prefs.sortBy) {
-      var s = form.querySelector('select[name="sort_by"]');
-      if (s && s.querySelector('option[value="' + prefs.sortBy + '"]')) s.value = prefs.sortBy;
-    }
-    if (prefs.language) {
-      var l = form.querySelector('select[name="language"]');
-      if (l && l.querySelector('option[value="' + prefs.language + '"]')) l.value = prefs.language;
-    }
-  }
-})();
+  })();
 </script>
 {% endblock %}

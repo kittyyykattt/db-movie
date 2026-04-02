@@ -1,106 +1,64 @@
 {% extends "base.html" %}
-{% block title %}Favorites{% endblock %}
+{% block title %}Library{% endblock %}
 {% block content %}
-<h1 class="vault-title">Your Vault</h1>
+<h1 class="vault-title">Your Library</h1>
+<p class="recommendations-intro">Manage what you loved and what you plan to watch later.</p>
+<div class="library-tabs">
+  <button type="button" class="library-tab is-active" data-tab="liked">
+    Watched & Liked <span class="library-tab-count" data-count-for="liked">(0)</span>
+  </button>
+  <button type="button" class="library-tab" data-tab="saved">
+    Saved for Later <span class="library-tab-count" data-count-for="saved">(0)</span>
+  </button>
+</div>
 <section class="favorites-section">
+  <div class="library-stats-row" id="library-stats"></div>
+  <div class="library-toolbar">
+    <label class="library-sort-wrap" for="library-sort">
+      <span>Sort</span>
+      <select id="library-sort">
+        <option value="recent">Recently Added</option>
+        <option value="title_asc">A-Z</option>
+        <option value="genre">By Genre</option>
+        <option value="year_desc">By Year</option>
+      </select>
+    </label>
+    <div class="library-filter-pills" id="library-filter-pills">
+      <button type="button" class="genre-filter-pill is-active" data-genre="all">All</button>
+    </div>
+  </div>
   <div class="favorites-grid" id="favorites-grid"></div>
   <div class="empty-state favorites-empty" id="favorites-empty">
-    <svg class="clapperboard-icon" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M8 12h48v40H8V12z" stroke="currentColor" stroke-width="2" fill="none"/>
-      <path d="M8 24h48" stroke="currentColor" stroke-width="2"/>
-      <rect x="12" y="28" width="16" height="16" rx="2" stroke="currentColor" stroke-width="2" fill="none"/>
-      <rect x="36" y="28" width="16" height="16" rx="2" stroke="currentColor" stroke-width="2" fill="none"/>
-      <path d="M20 12v-4l6 2-6 2v-2" stroke="currentColor" stroke-width="1.5" fill="none"/>
+    <svg class="film-reel-icon" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2"/>
+      <circle cx="32" cy="32" r="8" stroke="currentColor" stroke-width="2"/>
+      <circle cx="32" cy="8" r="4" fill="currentColor"/>
+      <circle cx="32" cy="56" r="4" fill="currentColor"/>
+      <circle cx="8" cy="32" r="4" fill="currentColor"/>
+      <circle cx="56" cy="32" r="4" fill="currentColor"/>
+      <circle cx="50.5" cy="13.5" r="3" fill="currentColor"/>
+      <circle cx="13.5" cy="50.5" r="3" fill="currentColor"/>
+      <circle cx="13.5" cy="13.5" r="3" fill="currentColor"/>
+      <circle cx="50.5" cy="50.5" r="3" fill="currentColor"/>
     </svg>
-    <p class="empty-message">Your vault is empty.</p>
-    <p class="empty-message-sub"><a href="{{ url_for('search_page') }}">Start searching to add favorites →</a></p>
+    <p class="empty-message">Nothing here yet</p>
+    <p class="empty-message-sub">Start building your collection from personalized picks.</p>
+    <a href="{{ url_for('recommendations_page') }}" class="btn btn-primary">Browse Recommendations</a>
   </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/library-ui.js') }}"></script>
 <script>
-(function() {
-  var grid = document.getElementById('favorites-grid');
-  var empty = document.getElementById('favorites-empty');
-  if (!grid || !empty) return;
-
-  function render() {
-    var ids = window.MovieDB ? window.MovieDB.getFavorites() : [];
-    if (ids.length === 0) {
-      grid.innerHTML = '';
-      empty.style.display = 'block';
-      return;
-    }
-    empty.style.display = 'none';
-    grid.innerHTML = '<div class="loading-state"><span class="loading-spinner"></span><p>Loading…</p></div>';
-    var baseUrl = window.location.origin;
-    var done = 0;
-    var cards = [];
-    ids.forEach(function(id) {
-      fetch(baseUrl + '/api/movies/' + id)
-        .then(function(r) { return r.ok ? r.json() : null; })
-        .then(function(m) {
-          if (m) cards.push(m);
-          done++;
-          if (done === ids.length) {
-            grid.innerHTML = '';
-            cards.forEach(function(m) {
-              var genres = (m.genre_names || (m.genre_name ? [m.genre_name] : [])).slice(0, 3);
-              var genreHtml = genres.map(function(g) { return '<span class="genre-pill">' + g + '</span>'; }).join('');
-              var card = document.createElement('article');
-              card.className = 'movie-card';
-              card.setAttribute('data-movie-id', m.movie_id);
-              card.innerHTML =
-                '<button type="button" class="btn-favorite is-favorite" aria-label="Remove from favorites" title="Remove from favorites">♥</button>' +
-                '<a href="' + baseUrl + '/movie/' + m.movie_id + '">' +
-                  '<div class="poster-wrap">' + (m.poster_url ? '<img src="' + m.poster_url + '" alt="" loading="lazy" />' : '<div class="poster-placeholder">🎬</div>') + '</div>' +
-                  '<div class="info">' +
-                    '<div class="title">' + (m.title || '') + '</div>' +
-                    '<div class="meta">' + (m.release_year || '') + (m.genre_name ? ' · ' + m.genre_name : '') + '</div>' +
-                    (genreHtml ? '<div class="genre-pills">' + genreHtml + '</div>' : '') +
-                    '<span class="view-details">View Details</span>' +
-                  '</div>' +
-                '</a>';
-              grid.appendChild(card);
-            });
-            if (window.MovieDB && typeof window.MovieDB.getFavorites === 'function') {
-              setTimeout(function() {
-                document.querySelectorAll('.movie-card[data-movie-id]').forEach(function(el) {
-                  var btn = el.querySelector('.btn-favorite');
-                  if (!btn) return;
-                  var movieId = el.getAttribute('data-movie-id');
-                  var isFav = window.MovieDB.getFavorites().indexOf(Number(movieId)) >= 0;
-                  btn.classList.toggle('is-favorite', isFav);
-                  btn.innerHTML = isFav ? '♥' : '♡';
-                  btn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (window.MovieDB) window.MovieDB.toggleFavorite(movieId);
-                    el.remove();
-                    if (grid.children.length === 0) empty.style.display = 'block';
-                  });
-                });
-              }, 0);
-            }
-          }
-        })
-        .catch(function() {
-          done++;
-          if (done === ids.length) {
-            grid.innerHTML = '';
-            empty.style.display = 'block';
-          }
-        });
+  (function() {
+    if (!window.LibraryUI) return;
+    window.LibraryUI.init({
+      gridSelector: '#favorites-grid',
+      emptySelector: '#favorites-empty',
+      tabsSelector: '.library-tab',
+      initialTab: 'liked'
     });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', render);
-  } else {
-    render();
-  }
-
-  window.addEventListener('storage', function(e) {
-    if (e.key === 'moviedb_favorites') render();
-  });
-})();
+  })();
 </script>
 {% endblock %}

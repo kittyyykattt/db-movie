@@ -1,8 +1,3 @@
-/**
- * Frontend API client for Flask backend.
- * Connect these to your Flask routes (search, movie details, ratings, recommendations).
- */
-
 const API_BASE = '/api';
 
 async function request(path, options = {}) {
@@ -36,7 +31,6 @@ async function request(path, options = {}) {
 }
 
 const api = {
-  /** Search: GET /api/search?q=...&genre_id=...&actor=...&director=... */
   search(params = {}) {
     const q = new URLSearchParams();
     if (params.q) q.set('q', params.q);
@@ -46,17 +40,14 @@ const api = {
     return request(`/search?${q.toString()}`);
   },
 
-  /** Genres: GET /api/genres */
   genres() {
     return request('/genres');
   },
 
-  /** Movie by id: GET /api/movies/<id> */
   movie(id) {
     return request(`/movies/${id}`);
   },
 
-  /** Rate movie: POST /api/ratings { movie_id, rating_value } */
   setRating(movieId, ratingValue) {
     return request('/ratings', {
       method: 'POST',
@@ -64,18 +55,15 @@ const api = {
     });
   },
 
-  /** User's rating for a movie: GET /api/ratings?movie_id=... (or from session) */
   getRating(movieId) {
     return request(`/ratings?movie_id=${movieId}`);
   },
 
-  /** Recommendations: GET /api/recommendations */
   recommendations() {
     return request('/recommendations');
   },
 };
 
-// Export for use in pages
 if (typeof window !== 'undefined') {
   window.MovieAPI = api;
   window.MovieAPIRequest = request;

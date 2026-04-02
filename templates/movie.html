@@ -2,17 +2,29 @@
 {% block title %}{{ movie.title }}{% endblock %}
 {% block content %}
 <article class="movie-detail" data-movie-id="{{ movie.movie_id }}">
-  <button type="button" class="btn-favorite movie-detail-favorite" aria-label="Add to favorites" title="Add to favorites">♡</button>
-  <div class="poster-wrap">
+  <button type="button" class="btn-favorite movie-detail-favorite" aria-label="Save for later" title="Save for later">♡</button>
+  <div class="poster-wrap movie-detail-poster-wrap" data-primary-genre="{{ movie.genre_name or '' }}">
     {% if movie.poster_url %}
     <img src="{{ movie.poster_url }}" alt="" />
     {% else %}
-    <div class="poster-placeholder">🎬</div>
+    <div class="poster-placeholder detail-poster-placeholder">
+      <span class="detail-poster-genre">{{ movie.genre_name or 'Feature' }}</span>
+      <span class="detail-poster-title">{{ movie.title }}</span>
+    </div>
     {% endif %}
   </div>
-  <div>
+  <div class="movie-detail-main">
     <h1>{{ movie.title }}</h1>
-    <p class="tagline">{{ movie.release_year }}{% if movie.genre_name %} · {{ movie.genre_name }}{% endif %}{% if movie.runtime %} · {{ movie.runtime }} min{% endif %}{% if movie.language %} · {{ movie.language }}{% endif %}</p>
+    <div class="movie-detail-actions">
+      <button type="button" class="btn btn-primary movie-like-toggle" id="movie-like-toggle">Mark as Watched & Liked</button>
+      <button type="button" class="btn movie-save-toggle" id="movie-save-toggle">Save for Later</button>
+    </div>
+    <p class="tagline">
+      {{ movie.release_year }}
+      {% if movie.runtime %} · {{ movie.runtime }} min{% endif %}
+      {% if movie.language %} · {{ movie.language }}{% endif %}
+      {% if movie.genre_name %}<span class="movie-meta-genre-badge">{{ movie.genre_name }}</span>{% endif %}
+    </p>
     {% if movie.description %}
     <div class="description">{{ movie.description }}</div>
     {% endif %}
@@ -26,25 +38,37 @@
         <button type="button" data-value="4" title="4 stars">★</button>
         <button type="button" data-value="5" title="5 stars">★</button>
       </div>
-      <div class="rating-value-text">Click a star to rate.</div>
+      <div class="rating-value-text">Your rating: 0/5</div>
       <div class="saved" style="display: none;">Rating saved.</div>
     </div>
 
     {% if cast or crew %}
+    <hr class="section-divider movie-detail-divider" />
     <div class="cast-crew">
       {% if cast %}
       <h3>Cast</h3>
       <div class="cast-list">
         {% for c in cast %}
-        <span>{{ c.name }}{% if c.character_name %} <em>as {{ c.character_name }}</em>{% endif %}</span>
+        <div class="person-card">
+          <div class="person-avatar">{{ (c.name[0] if c.name else '?')|upper }}</div>
+          <div class="person-name">{{ c.name }}</div>
+          {% if c.character_name %}
+          <div class="person-role">{{ c.character_name }}</div>
+          {% endif %}
+        </div>
         {% endfor %}
       </div>
       {% endif %}
+      <hr class="section-divider movie-detail-divider" />
       {% if crew %}
       <h3>Crew</h3>
       <div class="crew-list">
         {% for c in crew %}
-        <span>{{ c.name }} ({{ c.role }})</span>
+        <div class="person-card">
+          <div class="person-avatar">{{ (c.name[0] if c.name else '?')|upper }}</div>
+          <div class="person-name">{{ c.name }}</div>
+          <div class="person-role">{{ c.role }}</div>
+        </div>
         {% endfor %}
       </div>
       {% endif %}
@@ -52,6 +76,35 @@
     {% endif %}
   </div>
 </article>
+
+{% if similar_movies %}
+<section class="similar-movies">
+  <hr class="section-divider movie-detail-divider" />
+  <h2 class="section-title">Similar Movies</h2>
+  <div class="similar-movies-row">
+    {% for m in similar_movies %}
+    <article class="movie-card similar-card" data-movie-id="{{ m.movie_id }}">
+      <button type="button" class="btn-favorite" aria-label="Save for later" title="Save for later">♡</button>
+      <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
+        <div class="poster-wrap" data-primary-genre="{{ m.genre_name or '' }}">
+          {% if m.poster_url %}
+          <img src="{{ m.poster_url }}" alt="" loading="lazy" />
+          {% else %}
+          <div class="poster-placeholder">
+            <span class="poster-icon" aria-hidden="true">🎬</span>
+          </div>
+          {% endif %}
+        </div>
+        <div class="info">
+          <div class="title">{{ m.title }}</div>
+          <div class="meta">{{ m.release_year }}{% if m.genre_name %} · {{ m.genre_name }}{% endif %}</div>
+        </div>
+      </a>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 <script>
 (function() {
   const widget = document.querySelector('.rating-widget');
@@ -60,7 +113,16 @@
   const stars = widget.querySelectorAll('.rating-stars button');
   const valueText = widget.querySelector('.rating-value-text');
   const savedEl = widget.querySelector('.saved');
+  const likeBtn = document.getElementById('movie-like-toggle');
+  const saveBtn = document.getElementById('movie-save-toggle');
   let currentValue = 0;
+
+  function updateLikeButton() {
+    if (!likeBtn || !window.MovieDB) return;
+    const liked = window.MovieDB.isLiked(movieId);
+    likeBtn.classList.toggle('is-active', liked);
+    likeBtn.textContent = liked ? 'In Watched & Liked' : 'Mark as Watched & Liked';
+  }
 
   function setDisplay(value) {
     currentValue = value;
@@ -68,7 +130,14 @@
       btn.classList.toggle('filled', (i + 1) <= value);
       btn.classList.toggle('active', (i + 1) <= value);
     });
-    valueText.textContent = value ? value + ' star' + (value > 1 ? 's' : '') + '.' : 'Click a star to rate.';
+    valueText.textContent = 'Your rating: ' + value + '/5';
+  }
+
+  function updateSaveButton() {
+    if (!saveBtn || !window.MovieDB) return;
+    const saved = window.MovieDB.isWatchLater(movieId);
+    saveBtn.classList.toggle('is-active', saved);
+    saveBtn.textContent = saved ? 'Saved for Later' : 'Save for Later';
   }
 
   stars.forEach(btn => {
@@ -78,6 +147,10 @@
       window.MovieAPI.setRating(movieId, v)
         .then(function() {
           setDisplay(v);
+          if (window.MovieDB) {
+            window.MovieDB.setLikedFromRating(movieId, v);
+            updateLikeButton();
+          }
           if (savedEl) { savedEl.style.display = 'block'; setTimeout(function() { savedEl.style.display = 'none'; }, 2000); }
         })
         .catch(function() { valueText.textContent = 'Could not save rating.'; });
@@ -89,6 +162,54 @@
       if (r && r.rating_value) setDisplay(r.rating_value);
     }).catch(function() {});
   }
+
+  if (likeBtn && window.MovieDB) {
+    updateLikeButton();
+    likeBtn.addEventListener('click', function() {
+      window.MovieDB.toggleLiked(movieId);
+      updateLikeButton();
+    });
+  }
+
+  if (saveBtn && window.MovieDB) {
+    updateSaveButton();
+    saveBtn.addEventListener('click', function() {
+      window.MovieDB.toggleWatchLater(movieId);
+      updateSaveButton();
+      if (typeof window.MovieDB.refreshFavoriteButtons === 'function') {
+        window.MovieDB.refreshFavoriteButtons();
+      }
+    });
+  }
+
+  function applyGenrePalettes() {
+    var paletteByGenre = {
+      mystery: 'linear-gradient(135deg, #1e1b4b, #4338ca)',
+      thriller: 'linear-gradient(135deg, #7f1d1d, #991b1b)',
+      sci-fi: 'linear-gradient(135deg, #1d4ed8, #4338ca)',
+      drama: 'linear-gradient(135deg, #166534, #15803d)',
+      romance: 'linear-gradient(135deg, #b45309, #f59e0b)',
+      crime: 'linear-gradient(135deg, #0f172a, #334155)'
+    };
+    document.querySelectorAll('.poster-wrap').forEach(function(wrap) {
+      var placeholder = wrap.querySelector('.poster-placeholder');
+      if (!placeholder) return;
+      var genre = String(wrap.getAttribute('data-primary-genre') || '').toLowerCase();
+      placeholder.style.background = paletteByGenre[genre] || 'linear-gradient(135deg, #1f2937, #374151)';
+    });
+  }
+
+  stars.forEach((btn) => {
+    btn.addEventListener('mouseenter', function() {
+      const preview = parseInt(this.dataset.value, 10);
+      stars.forEach((s, i) => s.classList.toggle('hovered', i < preview));
+    });
+  });
+  widget.querySelector('.rating-stars').addEventListener('mouseleave', function() {
+    stars.forEach((s) => s.classList.remove('hovered'));
+  });
+
+  applyGenrePalettes();
 })();
 </script>
 {% endblock %}

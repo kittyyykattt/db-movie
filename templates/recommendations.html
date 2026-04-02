@@ -6,21 +6,65 @@
 
 <section class="recommendations-results">
   {% if recommendations is defined and recommendations %}
+  <div class="reco-controls">
+    <div class="reco-filter-pills" id="reco-filter-pills">
+      <button type="button" class="genre-filter-pill is-active" data-genre="all">All</button>
+      {% for g in genres %}
+      <button type="button" class="genre-filter-pill" data-genre="{{ g.genre_name }}">{{ g.genre_name }}</button>
+      {% endfor %}
+    </div>
+    <label class="reco-sort-wrap" for="reco-sort">
+      <span>Sort</span>
+      <select id="reco-sort">
+        <option value="best_match">Best Match</option>
+        <option value="newest">Newest</option>
+        <option value="highest_rated">Highest Rated</option>
+      </select>
+    </label>
+  </div>
+
   <div class="recommendations-list">
     {% for m in recommendations %}
-    <article class="recommendation-card" data-movie-id="{{ m.movie_id }}">
-      <button type="button" class="btn-favorite recommendation-card-favorite" aria-label="Add to favorites" title="Add to favorites">♡</button>
+    <article
+      class="recommendation-card curated-card"
+      data-movie-id="{{ m.movie_id }}"
+      data-genre="{{ m.genre_name or '' }}"
+      data-release-year="{{ m.release_year }}"
+      data-rating="{{ m.average_rating }}"
+      data-match="{{ m.match_percentage or 0 }}"
+    >
+      {% if m.match_percentage %}
+      <div
+        class="match-ring curated-match-ring"
+        role="img"
+        aria-label="{{ m.match_percentage }} percent match"
+        style="--match: {{ m.match_percentage }};"
+      >
+        <svg viewBox="0 0 42 42" aria-hidden="true">
+          <circle class="ring-bg" cx="21" cy="21" r="16"></circle>
+          <circle class="ring-fg" cx="21" cy="21" r="16"></circle>
+        </svg>
+        <span>{{ m.match_percentage }}%</span>
+      </div>
+      {% endif %}
+      <button type="button" class="btn-favorite recommendation-card-favorite" aria-label="Save for later" title="Save for later">♡</button>
       <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
-        <div class="poster-wrap">
+        <div class="poster-wrap" data-primary-genre="{{ m.genre_name or '' }}">
           {% if m.poster_url %}
           <img src="{{ m.poster_url }}" alt="" loading="lazy" />
           {% else %}
-          <div class="poster-placeholder">🎬</div>
+          <div class="poster-placeholder">
+            <span class="poster-icon" aria-hidden="true">🎬</span>
+          </div>
           {% endif %}
         </div>
         <div class="info">
           <div class="title">{{ m.title }}</div>
           <div class="meta">{{ m.release_year }}{% if m.genre_name %} · {{ m.genre_name }}{% endif %}</div>
+          <div class="card-hover-actions" aria-hidden="true">
+            <button type="button" class="card-action-btn card-action-save" title="Save for Later">🔖</button>
+            <span class="card-action-btn card-action-view">ℹ View Details</span>
+          </div>
         </div>
       </a>
     </article>
@@ -48,4 +92,97 @@
   </div>
   {% endif %}
 </section>
+
+{% if recommendations is defined and recommendations %}
+<script>
+  (function() {
+    var list = document.querySelector('.recommendations-list');
+    var cards = Array.prototype.slice.call(document.querySelectorAll('.curated-card'));
+    var sortSelect = document.getElementById('reco-sort');
+    var filterButtons = document.querySelectorAll('#reco-filter-pills .genre-filter-pill');
+    if (!list || !cards.length) return;
+
+    var activeGenre = 'all';
+
+    function applyGenrePalettes() {
+      var paletteByGenre = {
+        'sci-fi': 'linear-gradient(135deg, #1d4ed8, #4338ca)',
+        drama: 'linear-gradient(135deg, #166534, #15803d)',
+        romance: 'linear-gradient(135deg, #b45309, #f59e0b)',
+        thriller: 'linear-gradient(135deg, #7f1d1d, #991b1b)',
+        mystery: 'linear-gradient(135deg, #312e81, #4338ca)',
+        comedy: 'linear-gradient(135deg, #0f766e, #14b8a6)',
+        action: 'linear-gradient(135deg, #be123c, #f43f5e)',
+        crime: 'linear-gradient(135deg, #334155, #475569)'
+      };
+      cards.forEach(function(card) {
+        var wrap = card.querySelector('.poster-wrap');
+        var placeholder = card.querySelector('.poster-placeholder');
+        if (!wrap || !placeholder) return;
+        var genre = String(wrap.getAttribute('data-primary-genre') || '').toLowerCase();
+        placeholder.style.background = paletteByGenre[genre] || 'linear-gradient(135deg, #1f2937, #374151)';
+      });
+    }
+
+    function sortVisibleCards() {
+      var mode = sortSelect ? sortSelect.value : 'best_match';
+      var visible = cards.filter(function(card) {
+        return card.style.display !== 'none';
+      });
+      visible.sort(function(a, b) {
+        if (mode === 'newest') {
+          return Number(b.dataset.releaseYear) - Number(a.dataset.releaseYear);
+        }
+        if (mode === 'highest_rated') {
+          return Number(b.dataset.rating) - Number(a.dataset.rating);
+        }
+        return Number(b.dataset.match) - Number(a.dataset.match);
+      });
+      visible.forEach(function(card) {
+        list.appendChild(card);
+      });
+    }
+
+    function applyFilter() {
+      cards.forEach(function(card) {
+        var genre = String(card.dataset.genre || '').toLowerCase();
+        var show = activeGenre === 'all' || genre.indexOf(activeGenre) >= 0;
+        card.style.display = show ? '' : 'none';
+      });
+      sortVisibleCards();
+    }
+
+    filterButtons.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        filterButtons.forEach(function(other) { other.classList.remove('is-active'); });
+        btn.classList.add('is-active');
+        activeGenre = String(btn.getAttribute('data-genre') || 'all').toLowerCase();
+        applyFilter();
+      });
+    });
+
+    if (sortSelect) {
+      sortSelect.addEventListener('change', sortVisibleCards);
+    }
+
+    list.addEventListener('click', function(e) {
+      var saveBtn = e.target.closest('.card-action-save');
+      if (!saveBtn) return;
+      var card = e.target.closest('.curated-card');
+      if (!card) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.MovieDB) {
+        window.MovieDB.toggleWatchLater(card.getAttribute('data-movie-id'));
+        if (typeof window.MovieDB.refreshFavoriteButtons === 'function') {
+          window.MovieDB.refreshFavoriteButtons();
+        }
+      }
+    });
+
+    applyGenrePalettes();
+    applyFilter();
+  })();
+</script>
+{% endif %}
 {% endblock %}
