@@ -1,14 +1,146 @@
+import os
 from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask_login import (
+    LoginManager,
+    UserMixin,
+    current_user,
+    login_required,
+    login_user,
+    logout_user,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 import random
 import string
 from collections import Counter
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
 FRIEND_SESSIONS = {}
+USERS_BY_ID = {}
+USERS_BY_EMAIL = {}
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
+
+
+class AppUser(UserMixin):
+    def __init__(self, user_id, email, password_hash, onboarding_done=False):
+        self.id = str(user_id)
+        self.email = email
+        self.password_hash = password_hash
+        self.onboarding_done = onboarding_done
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return USERS_BY_ID.get(str(user_id))
 
 @app.context_processor
 def inject_user():
+    if current_user.is_authenticated:
+        return {"current_user": current_user}
     return {"current_user": None}
+
+
+def _read_form_or_json():
+    return request.get_json(silent=True) or request.form
+
+
+def _wants_json_response():
+    return request.is_json or request.accept_mimetypes.best == "application/json"
+
+
+def _normalize_email(raw):
+    return str(raw or "").strip().lower()
+
+
+def _next_user_id():
+    if not USERS_BY_ID:
+        return 1
+    return max(int(k) for k in USERS_BY_ID.keys()) + 1
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "GET":
+        if _wants_json_response():
+            return jsonify({"message": "Send POST /register with email and password"}), 200
+        return redirect(url_for("index"))
+
+    data = _read_form_or_json()
+    email = _normalize_email(data.get("email"))
+    password = str(data.get("password") or "")
+
+    if not email or not password:
+        return jsonify({"error": "email and password are required"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "password must be at least 8 characters"}), 400
+    if email in USERS_BY_EMAIL:
+        return jsonify({"error": "email already registered"}), 409
+
+    user = AppUser(
+        user_id=_next_user_id(),
+        email=email,
+        password_hash=generate_password_hash(password),
+        onboarding_done=False,
+    )
+    USERS_BY_ID[user.id] = user
+    USERS_BY_EMAIL[email] = user
+    login_user(user)
+
+    redirect_to = url_for("onboarding_page")
+    if _wants_json_response():
+        return jsonify({"ok": True, "redirect_to": redirect_to}), 201
+    return redirect(redirect_to)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        if _wants_json_response():
+            return jsonify({"message": "Send POST /login with email and password"}), 200
+        return redirect(url_for("index"))
+
+    data = _read_form_or_json()
+    email = _normalize_email(data.get("email"))
+    password = str(data.get("password") or "")
+
+    if not email or not password:
+        return jsonify({"error": "email and password are required"}), 400
+
+    user = USERS_BY_EMAIL.get(email)
+    if not user or not check_password_hash(user.password_hash, password):
+        return jsonify({"error": "invalid credentials"}), 401
+
+    login_user(user)
+    redirect_to = url_for("dashboard_page" if user.onboarding_done else "onboarding_page")
+    if _wants_json_response():
+        return jsonify({"ok": True, "redirect_to": redirect_to}), 200
+    return redirect(redirect_to)
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    if _wants_json_response():
+        return jsonify({"ok": True}), 200
+    return redirect(url_for("index"))
+
+
+@app.route("/dashboard")
+@login_required
+def dashboard_page():
+    return redirect(url_for("index"))
+
+
+@app.route("/onboarding")
+@login_required
+def onboarding_page():
+    if _wants_json_response():
+        return jsonify({"message": "Onboarding endpoint scaffolded; implement POST /onboarding in issue #5"}), 200
+    return redirect(url_for("index"))
 
 
 @app.route("/")
