@@ -21,11 +21,10 @@ login_manager.login_view = "login"
 
 
 class AppUser(UserMixin):
-    def __init__(self, user_id, email, password_hash, onboarding_done=False):
+    def __init__(self, user_id, email, password_hash):
         self.id = str(user_id)
         self.email = email
         self.password_hash = password_hash
-        self.onboarding_done = onboarding_done
 
 
 @login_manager.user_loader
@@ -79,13 +78,12 @@ def register():
         user_id=_next_user_id(),
         email=email,
         password_hash=generate_password_hash(password),
-        onboarding_done=False,
     )
     USERS_BY_ID[user.id] = user
     USERS_BY_EMAIL[email] = user
     login_user(user)
 
-    redirect_to = url_for("onboarding_page")
+    redirect_to = url_for("index")
     if _wants_json_response():
         return jsonify({"ok": True, "redirect_to": redirect_to}), 201
     return redirect(redirect_to)
@@ -110,7 +108,7 @@ def login():
         return jsonify({"error": "invalid credentials"}), 401
 
     login_user(user)
-    redirect_to = url_for("dashboard_page" if user.onboarding_done else "onboarding_page")
+    redirect_to = url_for("index")
     if _wants_json_response():
         return jsonify({"ok": True, "redirect_to": redirect_to}), 200
     return redirect(redirect_to)
@@ -122,20 +120,6 @@ def logout():
     logout_user()
     if _wants_json_response():
         return jsonify({"ok": True}), 200
-    return redirect(url_for("index"))
-
-
-@app.route("/dashboard")
-@login_required
-def dashboard_page():
-    return redirect(url_for("index"))
-
-
-@app.route("/onboarding")
-@login_required
-def onboarding_page():
-    if _wants_json_response():
-        return jsonify({"message": "Onboarding endpoint scaffolded; implement POST /onboarding in issue #5"}), 200
     return redirect(url_for("index"))
 
 
