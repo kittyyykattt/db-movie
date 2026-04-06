@@ -9,11 +9,46 @@ from flask_login import (
     logout_user,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
+from dotenv import load_dotenv
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+load_dotenv()
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
-USERS_BY_ID = {}
-USERS_BY_EMAIL = {}
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
+
+def db_get_user_by_id(user_id):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT user_id, email, password_hash FROM "Users" WHERE user_id = %s', (user_id,))
+            return cur.fetchone()
+
+
+def db_get_user_by_email(email):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT user_id, email, password_hash FROM "Users" WHERE LOWER(email) = LOWER(%s)', (email,))
+            return cur.fetchone()
+
+
+def db_create_user(email, password_hash):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO "Users" (email, password_hash, username, join_date) VALUES (%s, %s, %s, CURRENT_DATE) RETURNING user_id',
+                (email, password_hash, email.split('@')[0])
+            )
+            user_id = cur.fetchone()["user_id"]
+            conn.commit()
+            return user_id
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -26,10 +61,21 @@ class AppUser(UserMixin):
         self.email = email
         self.password_hash = password_hash
 
+    @staticmethod
+    def from_db_row(row):
+        if not row:
+            return None
+        return AppUser(
+            user_id=row["user_id"],
+            email=row["email"],
+            password_hash=row["password_hash"],
+        )
+
 
 @login_manager.user_loader
 def load_user(user_id):
-    return USERS_BY_ID.get(str(user_id))
+    row = db_get_user_by_id(int(user_id))
+    return AppUser.from_db_row(row)
 
 @app.context_processor
 def inject_user():
@@ -50,12 +96,6 @@ def _normalize_email(raw):
     return str(raw or "").strip().lower()
 
 
-def _next_user_id():
-    if not USERS_BY_ID:
-        return 1
-    return max(int(k) for k in USERS_BY_ID.keys()) + 1
-
-
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "GET":
@@ -71,16 +111,14 @@ def register():
         return jsonify({"error": "email and password are required"}), 400
     if len(password) < 8:
         return jsonify({"error": "password must be at least 8 characters"}), 400
-    if email in USERS_BY_EMAIL:
+    
+    existing = db_get_user_by_email(email)
+    if existing:
         return jsonify({"error": "email already registered"}), 409
 
-    user = AppUser(
-        user_id=_next_user_id(),
-        email=email,
-        password_hash=generate_password_hash(password),
-    )
-    USERS_BY_ID[user.id] = user
-    USERS_BY_EMAIL[email] = user
+    password_hash = generate_password_hash(password)
+    user_id = db_create_user(email, password_hash)
+    user = AppUser(user_id=user_id, email=email, password_hash=password_hash)
     login_user(user)
 
     redirect_to = url_for("index")
@@ -103,10 +141,11 @@ def login():
     if not email or not password:
         return jsonify({"error": "email and password are required"}), 400
 
-    user = USERS_BY_EMAIL.get(email)
-    if not user or not check_password_hash(user.password_hash, password):
+    row = db_get_user_by_email(email)
+    if not row or not check_password_hash(row["password_hash"], password):
         return jsonify({"error": "invalid credentials"}), 401
 
+    user = AppUser.from_db_row(row)
     login_user(user)
     redirect_to = url_for("index")
     if _wants_json_response():
