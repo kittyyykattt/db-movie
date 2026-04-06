@@ -47,7 +47,6 @@
         <span>{{ m.match_percentage }}%</span>
       </div>
       {% endif %}
-      <button type="button" class="btn-favorite recommendation-card-favorite" aria-label="Save for later" title="Save for later">♡</button>
       <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
         <div class="poster-wrap" data-primary-genre="{{ m.genre_name or '' }}">
           {% if m.poster_url %}
@@ -62,7 +61,6 @@
           <div class="title">{{ m.title }}</div>
           <div class="meta">{{ m.release_year }}{% if m.genre_name %} · {{ m.genre_name }}{% endif %}</div>
           <div class="card-hover-actions" aria-hidden="true">
-            <button type="button" class="card-action-btn card-action-save" title="Save for Later">🔖</button>
             <span class="card-action-btn card-action-view">ℹ View Details</span>
           </div>
         </div>
@@ -164,21 +162,6 @@
     if (sortSelect) {
       sortSelect.addEventListener('change', sortVisibleCards);
     }
-
-    list.addEventListener('click', function(e) {
-      var saveBtn = e.target.closest('.card-action-save');
-      if (!saveBtn) return;
-      var card = e.target.closest('.curated-card');
-      if (!card) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (window.MovieDB) {
-        window.MovieDB.toggleWatchLater(card.getAttribute('data-movie-id'));
-        if (typeof window.MovieDB.refreshFavoriteButtons === 'function') {
-          window.MovieDB.refreshFavoriteButtons();
-        }
-      }
-    });
 
     applyGenrePalettes();
     applyFilter();

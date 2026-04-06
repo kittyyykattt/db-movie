@@ -2,7 +2,6 @@
 {% block title %}{{ movie.title }}{% endblock %}
 {% block content %}
 <article class="movie-detail" data-movie-id="{{ movie.movie_id }}">
-  <button type="button" class="btn-favorite movie-detail-favorite" aria-label="Save for later" title="Save for later">♡</button>
   <div class="poster-wrap movie-detail-poster-wrap" data-primary-genre="{{ movie.genre_name or '' }}">
     {% if movie.poster_url %}
     <img src="{{ movie.poster_url }}" alt="" />
@@ -17,7 +16,6 @@
     <h1>{{ movie.title }}</h1>
     <div class="movie-detail-actions">
       <button type="button" class="btn btn-primary movie-like-toggle" id="movie-like-toggle">Mark as Watched & Liked</button>
-      <button type="button" class="btn movie-save-toggle" id="movie-save-toggle">Save for Later</button>
     </div>
     <p class="tagline">
       {{ movie.release_year }}
@@ -84,7 +82,6 @@
   <div class="similar-movies-row">
     {% for m in similar_movies %}
     <article class="movie-card similar-card" data-movie-id="{{ m.movie_id }}">
-      <button type="button" class="btn-favorite" aria-label="Save for later" title="Save for later">♡</button>
       <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
         <div class="poster-wrap" data-primary-genre="{{ m.genre_name or '' }}">
           {% if m.poster_url %}
@@ -114,7 +111,6 @@
   const valueText = widget.querySelector('.rating-value-text');
   const savedEl = widget.querySelector('.saved');
   const likeBtn = document.getElementById('movie-like-toggle');
-  const saveBtn = document.getElementById('movie-save-toggle');
   let currentValue = 0;
 
   function updateLikeButton() {
@@ -131,13 +127,6 @@
       btn.classList.toggle('active', (i + 1) <= value);
     });
     valueText.textContent = 'Your rating: ' + value + '/5';
-  }
-
-  function updateSaveButton() {
-    if (!saveBtn || !window.MovieDB) return;
-    const saved = window.MovieDB.isWatchLater(movieId);
-    saveBtn.classList.toggle('is-active', saved);
-    saveBtn.textContent = saved ? 'Saved for Later' : 'Save for Later';
   }
 
   stars.forEach(btn => {
@@ -168,17 +157,6 @@
     likeBtn.addEventListener('click', function() {
       window.MovieDB.toggleLiked(movieId);
       updateLikeButton();
-    });
-  }
-
-  if (saveBtn && window.MovieDB) {
-    updateSaveButton();
-    saveBtn.addEventListener('click', function() {
-      window.MovieDB.toggleWatchLater(movieId);
-      updateSaveButton();
-      if (typeof window.MovieDB.refreshFavoriteButtons === 'function') {
-        window.MovieDB.refreshFavoriteButtons();
-      }
     });
   }
 

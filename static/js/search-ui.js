@@ -12,11 +12,18 @@
     var form = document.querySelector(options.formSelector || '#search-form');
     if (!form) return;
 
-    var panel = document.querySelector(options.panelSelector || '#advanced-panel');
-    var toggle = document.querySelector(options.toggleSelector || '#advanced-toggle');
-    var countEl = document.querySelector(options.countSelector || '#advanced-count');
-    var actionsEl = document.querySelector(options.actionsSelector || '#search-actions');
-    var historyEl = document.querySelector(options.historySelector || '#search-history');
+    function resolveSel(key, fallback) {
+      if (key in options) {
+        return options[key] ? document.querySelector(options[key]) : null;
+      }
+      return fallback ? document.querySelector(fallback) : null;
+    }
+
+    var panel = resolveSel('panelSelector', '#advanced-panel');
+    var toggle = resolveSel('toggleSelector', '#advanced-toggle');
+    var countEl = resolveSel('countSelector', '#advanced-count');
+    var actionsEl = resolveSel('actionsSelector', '#search-actions');
+    var historyEl = resolveSel('historySelector', '#search-history');
     var saveHistory = options.saveHistory !== false;
     var savePrefs = options.savePrefs !== false;
 

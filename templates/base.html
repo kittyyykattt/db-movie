@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}Predicta{% endblock %}</title>
+  <title>{% block title %}MovieTrack{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -12,13 +12,12 @@
 <body>
   <header class="app-header">
     <div class="container">
-      <div class="logo"><a href="{{ url_for('index') }}">Predicta</a></div>
+      <div class="logo"><a href="{{ url_for('index') }}">MovieTrack</a></div>
       <button class="nav-toggle" type="button" aria-label="Toggle menu" aria-expanded="false">☰</button>
       <nav class="nav-links" id="nav-links">
         <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">Home</a>
+        <a href="{{ url_for('all_films_page') }}" class="{% if request.endpoint == 'all_films_page' %}active{% endif %}">Browse</a>
         <a href="{{ url_for('recommendations_page') }}" class="{% if request.endpoint == 'recommendations_page' %}active{% endif %}">Recommendations</a>
-        <a href="{{ url_for('choose_with_friends_page') }}" class="{% if request.endpoint == 'choose_with_friends_page' %}active{% endif %}">Choose with Friends</a>
-        <a href="{{ url_for('favorites_page') }}" class="{% if request.endpoint == 'favorites_page' %}active{% endif %}">Library</a>
         <span class="auth-badge">{% if current_user %}Logged in{% else %}Guest{% endif %}</span>
       </nav>
     </div>
@@ -29,7 +28,7 @@
     </div>
   </main>
   <footer class="app-footer">
-    <p class="footer-copyright">Predicta</p>
+    <p class="footer-copyright">MovieTrack</p>
   </footer>
   <script src="{{ url_for('static', filename='js/api.js') }}"></script>
   <script src="{{ url_for('static', filename='js/moviedb.js') }}"></script>

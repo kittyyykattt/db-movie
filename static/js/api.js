@@ -34,10 +34,33 @@ const api = {
   search(params = {}) {
     const q = new URLSearchParams();
     if (params.q) q.set('q', params.q);
+    if (params.search_by) q.set('search_by', params.search_by);
     if (params.genre_id) q.set('genre_id', params.genre_id);
     if (params.actor) q.set('actor', params.actor);
     if (params.director) q.set('director', params.director);
     return request(`/search?${q.toString()}`);
+  },
+
+  browse(params = {}) {
+    const q = new URLSearchParams();
+    if (params.genre && Array.isArray(params.genre)) {
+      params.genre.forEach((g) => q.append('genre', g));
+    } else if (params.genre) {
+      q.set('genre', params.genre);
+    }
+    if (params.q) q.set('q', params.q);
+    if (params.decade) q.set('decade', params.decade);
+    if (params.year_from != null && params.year_from !== '') q.set('year_from', params.year_from);
+    if (params.year_to != null && params.year_to !== '') q.set('year_to', params.year_to);
+    if (params.media_type) q.set('media_type', params.media_type);
+    if (params.language) q.set('language', params.language);
+    if (params.rating_min != null && params.rating_min !== '') q.set('rating_min', params.rating_min);
+    if (params.rating_max != null && params.rating_max !== '') q.set('rating_max', params.rating_max);
+    if (params.runtime_min != null && params.runtime_min !== '') q.set('runtime_min', params.runtime_min);
+    if (params.runtime_max != null && params.runtime_max !== '') q.set('runtime_max', params.runtime_max);
+    if (params.sort_by) q.set('sort_by', params.sort_by);
+    const qs = q.toString();
+    return request(`/browse${qs ? `?${qs}` : ''}`);
   },
 
   genres() {

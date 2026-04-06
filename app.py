@@ -9,13 +9,9 @@ from flask_login import (
     logout_user,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
-import random
-import string
-from collections import Counter
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
-FRIEND_SESSIONS = {}
 USERS_BY_ID = {}
 USERS_BY_EMAIL = {}
 
@@ -145,65 +141,106 @@ def onboarding_page():
 
 @app.route("/")
 def index():
+    raw_by = request.args.get("search_by", "title")
     q = request.args.get("q", "").strip()
-    director = request.args.get("director", "").strip()
-    actor = request.args.get("actor", "").strip()
-    genre = request.args.getlist("genre")
-    year_from = request.args.get("year_from", "").strip()
-    year_to = request.args.get("year_to", "").strip()
-    rating_min = request.args.get("rating_min", "").strip()
-    rating_max = request.args.get("rating_max", "").strip()
-    language = request.args.get("language", "").strip()
-    runtime_min = request.args.get("runtime_min", "").strip()
-    runtime_max = request.args.get("runtime_max", "").strip()
-    sort_by = request.args.get("sort_by", "").strip()
+    quick = _quick_search_params(raw_by, q)
+    search_by = quick["search_by"]
+    q = quick["q"]
 
-    has_query = any([
-        q, director, actor, genre, year_from, year_to,
-        rating_min, rating_max, language, runtime_min, runtime_max, sort_by
-    ])
     results = []
-    if has_query:
+    search_attempted = "q" in request.args
+    if search_attempted and q:
         results = _stub_search(
-            q=q, director=director, actor=actor,
-            genre=genre, year_from=year_from, year_to=year_to,
-            rating_min=rating_min, rating_max=rating_max,
-            language=language, runtime_min=runtime_min, runtime_max=runtime_max,
-            sort_by=sort_by,
+            q=quick["title_q"],
+            director=quick["director_q"],
+            actor=quick["actor_q"],
         )
 
     filters = {
+        "search_by": search_by,
         "q": q,
-        "director": director,
-        "actor": actor,
-        "genre": genre,
-        "year_from": year_from,
-        "year_to": year_to,
-        "rating_min": rating_min,
-        "rating_max": rating_max,
-        "language": language,
-        "runtime_min": runtime_min,
-        "runtime_max": runtime_max,
-        "sort_by": sort_by,
     }
+    search_query = q
+    search_by_label = {
+        "title": "title",
+        "actor": "actor",
+        "director": "director",
+    }.get(search_by, "title")
     return render_template(
         "index.html",
         results=results,
         result_count=len(results),
         filters=filters,
-        search_query=q,
+        search_query=search_query,
+        search_attempted=search_attempted,
+        search_by=search_by,
+        search_by_label=search_by_label,
         genres=_stub_genres(),
-        languages=LANGUAGES,
-        sort_options=SORT_OPTIONS,
         recommendations=_stub_recommendations(),
         top_favorite_genres=_stub_user_top_genres(),
         favorite_genre_recommendations=_stub_favorite_genre_recommendations(),
     )
 
 
+@app.route("/films")
+def all_films_page():
+    genre = request.args.getlist("genre")
+    decade = request.args.get("decade", "").strip()
+    year_from = request.args.get("year_from", "").strip()
+    year_to = request.args.get("year_to", "").strip()
+    q = request.args.get("q", "").strip()
+    media_type = request.args.get("media_type", "").strip()
+    language = request.args.get("language", "").strip()
+    rating_min = request.args.get("rating_min", "").strip()
+    rating_max = request.args.get("rating_max", "").strip()
+    runtime_min = request.args.get("runtime_min", "").strip()
+    runtime_max = request.args.get("runtime_max", "").strip()
+    sort_by = request.args.get("sort_by", "year_desc").strip()
+
+    y_from, y_to = _browse_year_bounds(decade, year_from, year_to)
+    results = _stub_search(
+        q=q,
+        genre=genre,
+        year_from=y_from,
+        year_to=y_to,
+        rating_min=rating_min,
+        rating_max=rating_max,
+        language=language,
+        runtime_min=runtime_min,
+        runtime_max=runtime_max,
+        sort_by=sort_by,
+        media_type=media_type,
+    )
+    filters = {
+        "genre": genre,
+        "decade": decade,
+        "year_from": year_from,
+        "year_to": year_to,
+        "q": q,
+        "media_type": media_type,
+        "language": language,
+        "rating_min": rating_min,
+        "rating_max": rating_max,
+        "runtime_min": runtime_min,
+        "runtime_max": runtime_max,
+        "sort_by": sort_by,
+    }
+    return render_template(
+        "all_films.html",
+        results=results,
+        result_count=len(results),
+        filters=filters,
+        genres=_stub_genres(),
+        decades=DECADES,
+        browse_sort_options=BROWSE_SORT_OPTIONS,
+        media_type_options=MEDIA_TYPE_OPTIONS,
+        languages=LANGUAGES,
+    )
+
+
 @app.route("/search")
 def search_page():
-    return redirect(url_for("index", **request.args))
+    return redirect(url_for("all_films_page", **request.args))
 
 
 @app.route("/movie/<int:movie_id>")
@@ -228,16 +265,6 @@ def recommendations_page():
     return render_template("recommendations.html", recommendations=recs, genres=_stub_genres())
 
 
-@app.route("/favorites")
-def favorites_page():
-    return render_template("favorites.html")
-
-
-@app.route("/choose-with-friends")
-def choose_with_friends_page():
-    return render_template("choose_with_friends.html", genres=_stub_genres())
-
-
 @app.route("/api/genres")
 def api_genres():
     return jsonify(_stub_genres())
@@ -245,9 +272,15 @@ def api_genres():
 
 @app.route("/api/search")
 def api_search():
+    search_by = request.args.get("search_by", "").strip()
     q = request.args.get("q", "").strip()
     director = request.args.get("director", "").strip()
     actor = request.args.get("actor", "").strip()
+    if search_by:
+        quick = _quick_search_params(search_by, q)
+        q = quick["title_q"]
+        director = quick["director_q"]
+        actor = quick["actor_q"]
     genre = request.args.getlist("genre")
     year_from = request.args.get("year_from", "").strip()
     year_to = request.args.get("year_to", "").strip()
@@ -263,6 +296,37 @@ def api_search():
         rating_min=rating_min, rating_max=rating_max,
         language=language, runtime_min=runtime_min, runtime_max=runtime_max,
         sort_by=sort_by,
+    )
+    return jsonify(results)
+
+
+@app.route("/api/browse")
+def api_browse():
+    genre = request.args.getlist("genre")
+    decade = request.args.get("decade", "").strip()
+    year_from = request.args.get("year_from", "").strip()
+    year_to = request.args.get("year_to", "").strip()
+    q = request.args.get("q", "").strip()
+    media_type = request.args.get("media_type", "").strip()
+    language = request.args.get("language", "").strip()
+    rating_min = request.args.get("rating_min", "").strip()
+    rating_max = request.args.get("rating_max", "").strip()
+    runtime_min = request.args.get("runtime_min", "").strip()
+    runtime_max = request.args.get("runtime_max", "").strip()
+    sort_by = request.args.get("sort_by", "year_desc").strip()
+    y_from, y_to = _browse_year_bounds(decade, year_from, year_to)
+    results = _stub_search(
+        q=q,
+        genre=genre,
+        year_from=y_from,
+        year_to=y_to,
+        rating_min=rating_min,
+        rating_max=rating_max,
+        language=language,
+        runtime_min=runtime_min,
+        runtime_max=runtime_max,
+        sort_by=sort_by,
+        media_type=media_type,
     )
     return jsonify(results)
 
@@ -317,132 +381,6 @@ def api_recommendations():
     return jsonify(_stub_recommendations())
 
 
-@app.route("/api/friend-sessions", methods=["POST"])
-def api_create_friend_session():
-    data = request.get_json() or {}
-    member_name = str(data.get("member_name") or "Host").strip()[:40]
-    member_id = str(data.get("member_id") or "").strip()
-    if not member_id:
-        return jsonify({"error": "member_id required"}), 400
-    code = _generate_friend_code()
-    session = {
-        "code": code,
-        "stage": "preferences",
-        "members": {},
-        "preference_submissions": {},
-        "candidate_ids": [],
-        "pick_submissions": {},
-        "results": [],
-    }
-    session["members"][member_id] = member_name or "Host"
-    FRIEND_SESSIONS[code] = session
-    return jsonify(_friend_session_payload(session))
-
-
-@app.route("/api/friend-sessions/<code>/join", methods=["POST"])
-def api_join_friend_session(code):
-    session = FRIEND_SESSIONS.get(code.upper())
-    if not session:
-        return jsonify({"error": "Session not found"}), 404
-    data = request.get_json() or {}
-    member_name = str(data.get("member_name") or "Friend").strip()[:40]
-    member_id = str(data.get("member_id") or "").strip()
-    if not member_id:
-        return jsonify({"error": "member_id required"}), 400
-    session["members"][member_id] = member_name or "Friend"
-    return jsonify(_friend_session_payload(session))
-
-
-@app.route("/api/friend-sessions/<code>", methods=["GET"])
-def api_get_friend_session(code):
-    session = FRIEND_SESSIONS.get(code.upper())
-    if not session:
-        return jsonify({"error": "Session not found"}), 404
-    return jsonify(_friend_session_payload(session))
-
-
-@app.route("/api/friend-sessions/<code>/preferences", methods=["POST"])
-def api_submit_friend_preferences(code):
-    session = FRIEND_SESSIONS.get(code.upper())
-    if not session:
-        return jsonify({"error": "Session not found"}), 404
-    if session["stage"] != "preferences":
-        return jsonify({"error": "Preference stage is closed"}), 400
-    data = request.get_json() or {}
-    member_id = str(data.get("member_id") or "").strip()
-    if not member_id:
-        return jsonify({"error": "member_id required"}), 400
-    if member_id not in session["members"]:
-        session["members"][member_id] = "Friend"
-    media_type = str(data.get("media_type") or "movie").strip().lower()
-    if media_type not in {"movie", "show", "either"}:
-        media_type = "movie"
-    genres = data.get("genres") or []
-    if not isinstance(genres, list):
-        genres = []
-    clean_genres = [str(g).strip() for g in genres if str(g).strip()]
-    session["preference_submissions"][member_id] = {
-        "media_type": media_type,
-        "genres": clean_genres[:4],
-    }
-    return jsonify(_friend_session_payload(session))
-
-
-@app.route("/api/friend-sessions/<code>/start-picks", methods=["POST"])
-def api_start_friend_picks(code):
-    session = FRIEND_SESSIONS.get(code.upper())
-    if not session:
-        return jsonify({"error": "Session not found"}), 404
-    if not session["preference_submissions"]:
-        return jsonify({"error": "At least one preference is required"}), 400
-    session["candidate_ids"] = _friend_candidates_for_session(session)
-    session["stage"] = "picks"
-    return jsonify(_friend_session_payload(session))
-
-
-@app.route("/api/friend-sessions/<code>/picks", methods=["POST"])
-def api_submit_friend_picks(code):
-    session = FRIEND_SESSIONS.get(code.upper())
-    if not session:
-        return jsonify({"error": "Session not found"}), 404
-    if session["stage"] not in {"picks", "results"}:
-        return jsonify({"error": "Pick stage is not active"}), 400
-    data = request.get_json() or {}
-    member_id = str(data.get("member_id") or "").strip()
-    picks = data.get("picks") or []
-    if not member_id:
-        return jsonify({"error": "member_id required"}), 400
-    if member_id not in session["members"]:
-        session["members"][member_id] = "Friend"
-    if not isinstance(picks, list):
-        picks = []
-    allowed = set(session["candidate_ids"])
-    ordered = []
-    for p in picks:
-        try:
-            pid = int(p)
-        except (TypeError, ValueError):
-            continue
-        if pid in allowed and pid not in ordered:
-            ordered.append(pid)
-        if len(ordered) == 3:
-            break
-    session["pick_submissions"][member_id] = ordered
-    return jsonify(_friend_session_payload(session))
-
-
-@app.route("/api/friend-sessions/<code>/finalize", methods=["POST"])
-def api_finalize_friend_session(code):
-    session = FRIEND_SESSIONS.get(code.upper())
-    if not session:
-        return jsonify({"error": "Session not found"}), 404
-    if session["stage"] not in {"picks", "results"}:
-        return jsonify({"error": "Pick stage is not active"}), 400
-    session["results"] = _friend_results_for_session(session)
-    session["stage"] = "results"
-    return jsonify(_friend_session_payload(session))
-
-
 def _stub_genres():
     return [
         {"genre_id": "action", "genre_name": "Action"},
@@ -481,11 +419,81 @@ SORT_OPTIONS = [
     ("title_asc", "Title A–Z"),
 ]
 
+BROWSE_SORT_OPTIONS = [
+    ("year_desc", "Year (newest first)"),
+    ("year_asc", "Year (oldest first)"),
+    ("rating_desc", "Rating (high to low)"),
+    ("rating_asc", "Rating (low to high)"),
+    ("runtime_desc", "Runtime (longest first)"),
+    ("runtime_asc", "Runtime (shortest first)"),
+    ("title_asc", "Title A–Z"),
+]
+
+MEDIA_TYPE_OPTIONS = [
+    ("", "Movies & TV shows"),
+    ("movie", "Movies only"),
+    ("show", "TV shows only"),
+]
+
+DECADES = [
+    ("", "Any decade"),
+    ("2020s", "2020s"),
+    ("2010s", "2010s"),
+    ("2000s", "2000s"),
+    ("1990s", "1990s"),
+    ("1980s", "1980s"),
+    ("1970s", "1970s"),
+    ("1960s", "1960s"),
+    ("1950s", "1950s"),
+]
+
+
+def _decade_year_range(decade):
+    if not decade:
+        return "", ""
+    decades = {
+        "2020s": (2020, 2029),
+        "2010s": (2010, 2019),
+        "2000s": (2000, 2009),
+        "1990s": (1990, 1999),
+        "1980s": (1980, 1989),
+        "1970s": (1970, 1979),
+        "1960s": (1960, 1969),
+        "1950s": (1950, 1959),
+    }
+    bounds = decades.get(decade)
+    if not bounds:
+        return "", ""
+    return str(bounds[0]), str(bounds[1])
+
+
+def _browse_year_bounds(decade, year_from, year_to):
+    yf = (year_from or "").strip()
+    yt = (year_to or "").strip()
+    if yf or yt:
+        return yf, yt
+    return _decade_year_range(decade)
+
+
+def _quick_search_params(search_by, q):
+    search_by = (search_by or "title").strip().lower()
+    if search_by not in {"title", "actor", "director"}:
+        search_by = "title"
+    q = (q or "").strip()
+    return {
+        "search_by": search_by,
+        "q": q,
+        "title_q": q if search_by == "title" else "",
+        "actor_q": q if search_by == "actor" else "",
+        "director_q": q if search_by == "director" else "",
+    }
+
 
 def _stub_search(
     q="", director="", actor="",
     genre=None, year_from="", year_to="", rating_min="", rating_max="",
     language="", runtime_min="", runtime_max="", sort_by="",
+    media_type="",
 ):
     genre = genre or []
     items = list(_stub_catalog())
@@ -533,6 +541,10 @@ def _stub_search(
     if language:
         items = [m for m in items if m["language_code"] == language]
 
+    mt = (media_type or "").strip().lower()
+    if mt in ("movie", "show"):
+        items = [m for m in items if m.get("media_type") == mt]
+
     if sort_by == "year_desc":
         items.sort(key=lambda m: m["release_year"], reverse=True)
     elif sort_by == "year_asc":
@@ -541,6 +553,12 @@ def _stub_search(
         items.sort(key=lambda m: m["average_rating"], reverse=True)
     elif sort_by == "title_asc":
         items.sort(key=lambda m: m["title"].lower())
+    elif sort_by == "rating_asc":
+        items.sort(key=lambda m: m["average_rating"])
+    elif sort_by == "runtime_desc":
+        items.sort(key=lambda m: m["runtime"], reverse=True)
+    elif sort_by == "runtime_asc":
+        items.sort(key=lambda m: m["runtime"])
 
     return [_stub_movie_card(m) for m in items]
 
@@ -642,6 +660,8 @@ def _stub_movie_card(movie):
         "title": movie["title"],
         "media_type": movie["media_type"],
         "release_year": movie["release_year"],
+        "runtime": movie["runtime"],
+        "language": movie["language"],
         "genre_name": movie["genre_name"],
         "genre_names": movie["genre_names"],
         "director": movie["director"],
@@ -1125,90 +1145,6 @@ def _stub_catalog():
             "poster_url": None,
         },
     ]
-
-
-def _generate_friend_code():
-    for _ in range(8):
-        code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        if code not in FRIEND_SESSIONS:
-            return code
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-
-
-def _friend_session_payload(session):
-    base_url = request.host_url.rstrip("/")
-    join_url = f"{base_url}{url_for('choose_with_friends_page')}?code={session['code']}"
-    candidate_movies = []
-    for mid in session["candidate_ids"]:
-        movie = _stub_movie(mid)
-        if movie:
-            candidate_movies.append(movie)
-    return {
-        "code": session["code"],
-        "stage": session["stage"],
-        "join_url": join_url,
-        "member_count": len(session["members"]),
-        "members": [
-            {
-                "member_id": member_id,
-                "name": session["members"][member_id],
-                "has_preferences": member_id in session["preference_submissions"],
-                "has_picks": bool(session["pick_submissions"].get(member_id)),
-            }
-            for member_id in session["members"]
-        ],
-        "preferences": session["preference_submissions"],
-        "candidates": candidate_movies,
-        "results": session["results"],
-    }
-
-
-def _friend_candidates_for_session(session):
-    preferences = list(session["preference_submissions"].values())
-    media_votes = Counter([p["media_type"] for p in preferences if p.get("media_type") and p["media_type"] != "either"])
-    target_media = media_votes.most_common(1)[0][0] if media_votes else "movie"
-
-    genre_votes = Counter()
-    for pref in preferences:
-        genre_votes.update(pref.get("genres", []))
-    top_genres = [g for g, _ in genre_votes.most_common(3)]
-
-    items = list(_stub_catalog())
-    media_items = [m for m in items if m["media_type"] == target_media]
-    candidate_pool = media_items if media_items else items
-    if top_genres:
-        filtered = [m for m in candidate_pool if set(m["genre_ids"]).intersection(set(top_genres))]
-        if filtered:
-            candidate_pool = filtered
-    candidate_pool = sorted(candidate_pool, key=lambda m: m["average_rating"], reverse=True)
-    return [m["movie_id"] for m in candidate_pool[:8]]
-
-
-def _friend_results_for_session(session):
-    if not session["candidate_ids"]:
-        return []
-    score = Counter()
-    voters = {}
-    weights = [3, 2, 1]
-    for member_id, picks in session["pick_submissions"].items():
-        voter_name = session["members"].get(member_id, "Friend")
-        for idx, movie_id in enumerate(picks[:3]):
-            score[movie_id] += weights[idx]
-            voters.setdefault(movie_id, []).append(voter_name)
-    ranked = []
-    for movie_id in session["candidate_ids"]:
-        if movie_id not in score:
-            continue
-        movie = _stub_movie(movie_id)
-        if not movie:
-            continue
-        ranked.append({
-            "movie": movie,
-            "points": score[movie_id],
-            "voters": voters.get(movie_id, []),
-        })
-    ranked.sort(key=lambda row: row["points"], reverse=True)
-    return ranked
 
 
 if __name__ == "__main__":

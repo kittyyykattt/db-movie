@@ -96,7 +96,6 @@
     <div class="movie-grid">
       {% for m in results %}
       <article class="movie-card" data-movie-id="{{ m.movie_id }}">
-        <button type="button" class="btn-favorite" aria-label="Save for later" title="Save for later">♡</button>
         <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
           <div class="poster-wrap">
             {% if m.poster_url %}

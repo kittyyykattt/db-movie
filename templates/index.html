@@ -3,105 +3,51 @@
 {% block content %}
 <section class="hero reveal-section">
   <div class="hero-cinematic-overlay"></div>
-  <h1 class="hero-wordmark"><a href="{{ url_for('index') }}">PREDICTA</a></h1>
+  <h1 class="hero-wordmark"><a href="{{ url_for('index') }}">MOVIETRACK</a></h1>
   <p class="hero-sub">
     Personalized picks, smarter watch decisions.
     <span class="hero-tagline-cycle" id="hero-tagline-cycle" aria-live="polite">Drama. Sci-Fi. Romance.</span>
   </p>
-  <p class="recommendations-intro hero-search-intro">Search by title, cast, crew, genre, year, language, runtime, and ratings.</p>
-  <div class="search-card advanced-search-card hero-search-card">
-    <form class="advanced-search-form" action="{{ url_for('index') }}" method="get" id="search-form">
-      <div class="search-row search-row-basic">
-        <label class="search-field">
-          <span class="search-field-label">Title</span>
-          <input type="text" name="q" placeholder="Movie title" value="{{ filters.q }}" />
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Director</span>
-          <input type="text" name="director" placeholder="Director" value="{{ filters.director }}" />
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Actor / Cast</span>
-          <input type="text" name="actor" placeholder="Actor name" value="{{ filters.actor }}" />
-        </label>
-        <button type="submit" class="btn btn-primary search-submit">Search</button>
-      </div>
-
-      <div class="advanced-filters">
-        <button type="button" class="advanced-filters-toggle" id="advanced-toggle" aria-expanded="false" aria-controls="advanced-panel">
-          <span class="advanced-filters-label">Advanced Filters</span>
-          <span class="advanced-filters-arrow">▾</span>
-          <span class="advanced-filters-count" id="advanced-count">(0)</span>
-        </button>
-        <div class="advanced-filters-panel" id="advanced-panel" role="region">
-          <div class="advanced-filters-grid">
-            <label class="search-field search-field-full">
-              <span class="search-field-label">Genre</span>
-              <select name="genre" multiple size="4">
-                {% for g in genres %}
-                <option value="{{ g.genre_id }}" {% if g.genre_id in filters.genre %}selected{% endif %}>{{ g.genre_name }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label class="search-field">
-              <span class="search-field-label">Year From</span>
-              <input type="number" name="year_from" placeholder="e.g. 1990" value="{{ filters.year_from }}" min="1900" max="2030" />
-            </label>
-            <label class="search-field">
-              <span class="search-field-label">Year To</span>
-              <input type="number" name="year_to" placeholder="e.g. 2024" value="{{ filters.year_to }}" min="1900" max="2030" />
-            </label>
-            <label class="search-field">
-              <span class="search-field-label">Rating Min (1-10)</span>
-              <input type="number" name="rating_min" placeholder="1" value="{{ filters.rating_min }}" min="1" max="10" step="0.5" />
-            </label>
-            <label class="search-field">
-              <span class="search-field-label">Rating Max (1-10)</span>
-              <input type="number" name="rating_max" placeholder="10" value="{{ filters.rating_max }}" min="1" max="10" step="0.5" />
-            </label>
-            <label class="search-field">
-              <span class="search-field-label">Language</span>
-              <select name="language">
-                {% for val, label in languages %}
-                <option value="{{ val }}" {% if filters.language == val %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label class="search-field">
-              <span class="search-field-label">Runtime From (min)</span>
-              <input type="number" name="runtime_min" placeholder="0" value="{{ filters.runtime_min }}" min="0" max="300" />
-            </label>
-            <label class="search-field">
-              <span class="search-field-label">Runtime To (min)</span>
-              <input type="number" name="runtime_max" placeholder="240" value="{{ filters.runtime_max }}" min="0" max="300" />
-            </label>
-            <label class="search-field">
-              <span class="search-field-label">Sort By</span>
-              <select name="sort_by">
-                {% for val, label in sort_options %}
-                <option value="{{ val }}" {% if filters.sort_by == val %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
-            </label>
-          </div>
+  <p class="recommendations-intro hero-search-intro">Search by title, actor, or director. For genres, years, language, and more, use <a href="{{ url_for('all_films_page') }}">Browse</a>.</p>
+  <div class="search-card hero-search-card">
+    <form class="hero-search-form" action="{{ url_for('index') }}" method="get" id="search-form" role="search">
+      <div class="hero-search-bar">
+        <div class="hero-search-scope">
+          <span class="hero-search-scope-label" id="hero-search-scope-label">Search by</span>
+          <select
+            name="search_by"
+            class="hero-search-select"
+            aria-labelledby="hero-search-scope-label"
+          >
+            <option value="title" {% if filters.search_by == 'title' %}selected{% endif %}>Title</option>
+            <option value="actor" {% if filters.search_by == 'actor' %}selected{% endif %}>Actor</option>
+            <option value="director" {% if filters.search_by == 'director' %}selected{% endif %}>Director</option>
+          </select>
         </div>
-      </div>
-
-      <div class="search-actions" id="search-actions" style="display: none;">
-        <a href="{{ url_for('index') }}" class="btn btn-clear">Clear All Filters</a>
+        <span class="hero-search-divider" aria-hidden="true"></span>
+        <input
+          type="search"
+          name="q"
+          class="hero-search-input"
+          placeholder="Search titles or names…"
+          value="{{ filters.q }}"
+          autocomplete="off"
+          aria-label="Search query"
+        />
+        <button type="submit" class="hero-search-submit">Search</button>
       </div>
     </form>
+    <p class="hero-search-footnote"><a href="{{ url_for('all_films_page') }}">Browse movies &amp; TV shows</a></p>
   </div>
 
   <div class="search-history" id="search-history"></div>
 
   <section class="search-results">
     {% if results is defined and results %}
-    <p class="results-count" id="results-count">Showing {{ result_count }} result{{ 's' if result_count != 1 else '' }}{% if search_query %} for &ldquo;{{ search_query }}&rdquo;{% endif %}</p>
+    <p class="results-count" id="results-count">Showing {{ result_count }} result{{ 's' if result_count != 1 else '' }}{% if search_query %} for &ldquo;{{ search_query }}&rdquo; <span class="results-by">({{ search_by_label }})</span>{% endif %}</p>
     <div class="movie-grid">
       {% for m in results %}
       <article class="movie-card" data-movie-id="{{ m.movie_id }}">
-        <button type="button" class="btn-favorite" aria-label="Save for later" title="Save for later">♡</button>
         <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
           <div class="poster-wrap" data-primary-genre="{{ m.genre_names[0] if m.genre_names else '' }}">
             {% if m.poster_url %}
@@ -134,8 +80,12 @@
       </article>
       {% endfor %}
     </div>
-    {% elif request.args %}
-    <p class="results-count results-count-empty">No matches found for your filters.</p>
+    {% elif search_attempted %}
+    {% if not filters.q %}
+    <p class="results-count results-count-empty">Enter a search term to look up a title, actor, or director.</p>
+    {% else %}
+    <p class="results-count results-count-empty">No matches for &ldquo;{{ filters.q }}&rdquo; <span class="results-by">({{ search_by_label }})</span>.</p>
+    {% endif %}
     {% endif %}
   </section>
 </section>
@@ -161,7 +111,6 @@
       <div class="reco-carousel-track" id="reco-carousel-track">
     {% for m in recommendations %}
     <article class="movie-card reco-card" data-movie-id="{{ m.movie_id }}" data-genres="{{ m.genre_name or '' }}">
-      <button type="button" class="btn-favorite" aria-label="Save for later" title="Save for later">♡</button>
       <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
         <div class="poster-wrap" data-primary-genre="{{ m.genre_name or '' }}">
           {% if m.poster_url %}
@@ -225,7 +174,6 @@
   <div class="movie-grid">
     {% for m in favorite_genre_recommendations %}
     <article class="movie-card" data-movie-id="{{ m.movie_id }}">
-      <button type="button" class="btn-favorite" aria-label="Save for later" title="Save for later">♡</button>
       <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
         <div class="poster-wrap" data-primary-genre="{{ m.genre_name or '' }}">
           {% if m.poster_url %}
