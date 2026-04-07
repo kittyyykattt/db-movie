@@ -50,6 +50,293 @@ def db_create_user(email, password_hash):
             conn.commit()
             return user_id
 
+
+def db_get_genres():
+    """Fetch all genres from the database."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT genre_id, genre_name FROM "Genres" ORDER BY genre_name')
+            return cur.fetchall()
+
+
+def db_get_movie_by_id(movie_id):
+    """Fetch a single movie with its genre and average rating."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT 
+                    m.movie_id, m.title, m.release_year, m.runtime, 
+                    m.language, m.description, m.poster_url, m.genre_id,
+                    g.genre_name,
+                    COALESCE(AVG(r.rating_value), 0) as average_rating
+                FROM "Movies" m
+                LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+                LEFT JOIN "Ratings" r ON m.movie_id = r.movie_id
+                WHERE m.movie_id = %s
+                GROUP BY m.movie_id, g.genre_name
+            ''', (movie_id,))
+            return cur.fetchone()
+
+
+def db_get_credits(movie_id, role=None):
+    """Fetch cast/crew for a movie. role='Director' for directors, role='Actor' for cast."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            if role:
+                cur.execute('''
+                    SELECT p.name, c.role, c.character_name
+                    FROM "Credits" c
+                    JOIN "People" p ON c.person_id = p.person_id
+                    WHERE c.movie_id = %s AND c.role = %s
+                    ORDER BY c.credit_id
+                ''', (movie_id, role))
+            else:
+                cur.execute('''
+                    SELECT p.name, c.role, c.character_name
+                    FROM "Credits" c
+                    JOIN "People" p ON c.person_id = p.person_id
+                    WHERE c.movie_id = %s
+                    ORDER BY c.credit_id
+                ''', (movie_id,))
+            return cur.fetchall()
+
+
+def db_search_movies(
+    q="", director="", actor="",
+    genre=None, year_from=None, year_to=None,
+    rating_min=None, rating_max=None,
+    language="", runtime_min=None, runtime_max=None,
+    sort_by="", limit=100
+):
+    """
+    Search movies with filters. Uses ILIKE for title/actor/director search.
+    Max's homepage: simple search by title/actor/director (3 separate ILIKE queries)
+    Max's browse page: master filter query with all filters
+    """
+    genre = genre or []
+    params = []
+    
+    base_query = '''
+        SELECT DISTINCT
+            m.movie_id, m.title, m.release_year, m.runtime,
+            m.language, m.description, m.poster_url, m.genre_id,
+            g.genre_name,
+            COALESCE(avg_r.avg_rating, 0) as average_rating
+        FROM "Movies" m
+        LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+        LEFT JOIN (
+            SELECT movie_id, AVG(rating_value) as avg_rating
+            FROM "Ratings"
+            GROUP BY movie_id
+        ) avg_r ON m.movie_id = avg_r.movie_id
+    '''
+    
+    joins = []
+    conditions = []
+    
+    # Title search (ILIKE)
+    if q:
+        conditions.append("m.title ILIKE %s")
+        params.append(f"%{q}%")
+    
+    # Director search (ILIKE) - join Credits and People
+    if director:
+        joins.append('''
+            JOIN "Credits" c_dir ON m.movie_id = c_dir.movie_id AND c_dir.role = 'Director'
+            JOIN "People" p_dir ON c_dir.person_id = p_dir.person_id
+        ''')
+        conditions.append("p_dir.name ILIKE %s")
+        params.append(f"%{director}%")
+    
+    # Actor search (ILIKE) - join Credits and People
+    if actor:
+        joins.append('''
+            JOIN "Credits" c_act ON m.movie_id = c_act.movie_id AND c_act.role = 'Actor'
+            JOIN "People" p_act ON c_act.person_id = p_act.person_id
+        ''')
+        conditions.append("p_act.name ILIKE %s")
+        params.append(f"%{actor}%")
+    
+    # Genre filter
+    if genre:
+        placeholders = ", ".join(["%s"] * len(genre))
+        conditions.append(f"m.genre_id IN ({placeholders})")
+        params.extend(genre)
+    
+    # Year range filter
+    if year_from:
+        conditions.append("m.release_year >= %s")
+        params.append(int(year_from))
+    if year_to:
+        conditions.append("m.release_year <= %s")
+        params.append(int(year_to))
+    
+    # Runtime filter
+    if runtime_min:
+        conditions.append("m.runtime >= %s")
+        params.append(int(runtime_min))
+    if runtime_max:
+        conditions.append("m.runtime <= %s")
+        params.append(int(runtime_max))
+    
+    # Language filter
+    if language:
+        conditions.append("m.language ILIKE %s")
+        params.append(f"%{language}%")
+    
+    # Rating filter (applied in HAVING since it's an aggregate)
+    having_conditions = []
+    if rating_min:
+        having_conditions.append("COALESCE(avg_r.avg_rating, 0) >= %s")
+        params.append(float(rating_min))
+    if rating_max:
+        having_conditions.append("COALESCE(avg_r.avg_rating, 0) <= %s")
+        params.append(float(rating_max))
+    
+    # Build full query
+    full_query = base_query
+    for join in joins:
+        full_query += join
+    
+    if conditions:
+        full_query += " WHERE " + " AND ".join(conditions)
+    
+    if having_conditions:
+        full_query += " HAVING " + " AND ".join(having_conditions)
+    
+    # Sorting
+    sort_map = {
+        "year_desc": "m.release_year DESC",
+        "year_asc": "m.release_year ASC",
+        "rating_desc": "average_rating DESC",
+        "rating_asc": "average_rating ASC",
+        "runtime_desc": "m.runtime DESC",
+        "runtime_asc": "m.runtime ASC",
+        "title_asc": "m.title ASC",
+    }
+    order = sort_map.get(sort_by, "m.release_year DESC")
+    full_query += f" ORDER BY {order}"
+    full_query += f" LIMIT {int(limit)}"
+    
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(full_query, params)
+            return cur.fetchall()
+
+
+def db_get_user_rating(user_id, movie_id):
+    """Get a user's rating for a specific movie."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT rating_value, rating_date
+                FROM "Ratings"
+                WHERE user_id = %s AND movie_id = %s
+            ''', (user_id, movie_id))
+            return cur.fetchone()
+
+
+def db_set_user_rating(user_id, movie_id, rating_value):
+    """Set or update a user's rating for a movie."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Upsert: update if exists, insert if not
+            cur.execute('''
+                INSERT INTO "Ratings" (user_id, movie_id, rating_value, rating_date)
+                VALUES (%s, %s, %s, CURRENT_DATE)
+                ON CONFLICT (user_id, movie_id) 
+                DO UPDATE SET rating_value = %s, rating_date = CURRENT_DATE
+                RETURNING rating_id
+            ''', (user_id, movie_id, rating_value, rating_value))
+            result = cur.fetchone()
+            conn.commit()
+            return result
+
+
+def db_get_user_ratings_history(user_id):
+    """Get all movies rated by a user with movie details."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT 
+                    m.movie_id, m.title, m.release_year, m.runtime,
+                    m.language, m.poster_url,
+                    g.genre_name,
+                    r.rating_value, r.rating_date,
+                    COALESCE(avg_r.avg_rating, 0) as average_rating
+                FROM "Ratings" r
+                JOIN "Movies" m ON r.movie_id = m.movie_id
+                LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+                LEFT JOIN (
+                    SELECT movie_id, AVG(rating_value) as avg_rating
+                    FROM "Ratings"
+                    GROUP BY movie_id
+                ) avg_r ON m.movie_id = avg_r.movie_id
+                WHERE r.user_id = %s
+                ORDER BY r.rating_date DESC
+            ''', (user_id,))
+            return cur.fetchall()
+
+
+def db_get_recommendations(user_id, limit=12):
+    """
+    Get movie recommendations based on user's rated movies.
+    Strategy: find movies in genres the user rates highly.
+    """
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Get genres user rates highly (avg rating >= 3.5)
+            cur.execute('''
+                SELECT m.genre_id, AVG(r.rating_value) as avg_genre_rating
+                FROM "Ratings" r
+                JOIN "Movies" m ON r.movie_id = m.movie_id
+                WHERE r.user_id = %s AND m.genre_id IS NOT NULL
+                GROUP BY m.genre_id
+                HAVING AVG(r.rating_value) >= 3.5
+                ORDER BY avg_genre_rating DESC
+                LIMIT 5
+            ''', (user_id,))
+            top_genres = [row["genre_id"] for row in cur.fetchall()]
+            
+            if not top_genres:
+                # Fallback: return highly rated movies overall
+                cur.execute('''
+                    SELECT 
+                        m.movie_id, m.title, m.release_year, m.runtime,
+                        m.language, m.poster_url, m.genre_id,
+                        g.genre_name,
+                        COALESCE(AVG(r.rating_value), 0) as average_rating
+                    FROM "Movies" m
+                    LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+                    LEFT JOIN "Ratings" r ON m.movie_id = r.movie_id
+                    GROUP BY m.movie_id, g.genre_name
+                    ORDER BY average_rating DESC
+                    LIMIT %s
+                ''', (limit,))
+                return cur.fetchall()
+            
+            # Get movies in user's preferred genres they haven't rated
+            placeholders = ", ".join(["%s"] * len(top_genres))
+            cur.execute(f'''
+                SELECT 
+                    m.movie_id, m.title, m.release_year, m.runtime,
+                    m.language, m.poster_url, m.genre_id,
+                    g.genre_name,
+                    COALESCE(AVG(r.rating_value), 0) as average_rating
+                FROM "Movies" m
+                LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+                LEFT JOIN "Ratings" r ON m.movie_id = r.movie_id
+                WHERE m.genre_id IN ({placeholders})
+                AND m.movie_id NOT IN (
+                    SELECT movie_id FROM "Ratings" WHERE user_id = %s
+                )
+                GROUP BY m.movie_id, g.genre_name
+                ORDER BY average_rating DESC
+                LIMIT %s
+            ''', (*top_genres, user_id, limit))
+            return cur.fetchall()
+
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
