@@ -485,7 +485,7 @@ def index():
         search_attempted=search_attempted,
         search_by=search_by,
         search_by_label=search_by_label,
-        genres=_stub_genres(),
+        genres=get_genres(),
         recommendations=_stub_recommendations(),
         top_favorite_genres=_stub_user_top_genres(),
         favorite_genre_recommendations=_stub_favorite_genre_recommendations(),
@@ -540,7 +540,7 @@ def all_films_page():
         results=results,
         result_count=len(results),
         filters=filters,
-        genres=_stub_genres(),
+        genres=get_genres(),
         decades=DECADES,
         browse_sort_options=BROWSE_SORT_OPTIONS,
         media_type_options=MEDIA_TYPE_OPTIONS,
@@ -572,12 +572,12 @@ def movie_detail(movie_id):
 @app.route("/recommendations")
 def recommendations_page():
     recs = _stub_recommendations()
-    return render_template("recommendations.html", recommendations=recs, genres=_stub_genres())
+    return render_template("recommendations.html", recommendations=recs, genres=get_genres())
 
 
 @app.route("/api/genres")
 def api_genres():
-    return jsonify(_stub_genres())
+    return jsonify(get_genres())
 
 
 @app.route("/api/search")
@@ -691,20 +691,32 @@ def api_recommendations():
     return jsonify(_stub_recommendations())
 
 
+def get_genres():
+    """Get genres from database, fallback to stub data if DB fails."""
+    try:
+        rows = db_get_genres()
+        if rows:
+            return [dict(row) for row in rows]
+    except Exception:
+        pass
+    return _stub_genres()
+
+
 def _stub_genres():
+    """Fallback genre data if database is unavailable."""
     return [
-        {"genre_id": "action", "genre_name": "Action"},
-        {"genre_id": "comedy", "genre_name": "Comedy"},
-        {"genre_id": "drama", "genre_name": "Drama"},
-        {"genre_id": "horror", "genre_name": "Horror"},
-        {"genre_id": "romance", "genre_name": "Romance"},
-        {"genre_id": "sci-fi", "genre_name": "Sci-Fi"},
-        {"genre_id": "thriller", "genre_name": "Thriller"},
-        {"genre_id": "documentary", "genre_name": "Documentary"},
-        {"genre_id": "animation", "genre_name": "Animation"},
-        {"genre_id": "crime", "genre_name": "Crime"},
-        {"genre_id": "mystery", "genre_name": "Mystery"},
-        {"genre_id": "fantasy", "genre_name": "Fantasy"},
+        {"genre_id": 1, "genre_name": "Action"},
+        {"genre_id": 2, "genre_name": "Comedy"},
+        {"genre_id": 3, "genre_name": "Drama"},
+        {"genre_id": 4, "genre_name": "Horror"},
+        {"genre_id": 5, "genre_name": "Romance"},
+        {"genre_id": 6, "genre_name": "Sci-Fi"},
+        {"genre_id": 7, "genre_name": "Thriller"},
+        {"genre_id": 8, "genre_name": "Documentary"},
+        {"genre_id": 9, "genre_name": "Animation"},
+        {"genre_id": 10, "genre_name": "Crime"},
+        {"genre_id": 11, "genre_name": "Mystery"},
+        {"genre_id": 12, "genre_name": "Fantasy"},
     ]
 
 
@@ -908,8 +920,8 @@ def _stub_recommendations():
 
 
 def _stub_user_top_genres():
-    ids = ["drama", "sci-fi", "thriller", "comedy"]
-    by_id = {g["genre_id"]: g for g in _stub_genres()}
+    ids = [3, 6, 7, 2]  # drama, sci-fi, thriller, comedy (using numeric IDs from DB)
+    by_id = {g["genre_id"]: g for g in get_genres()}
     return [by_id[g] for g in ids if g in by_id][:4]
 
 
@@ -1004,10 +1016,10 @@ def _movie_by_id(movie_id):
 
 
 def _genre_name(genre_id):
-    for g in _stub_genres():
+    for g in get_genres():
         if g["genre_id"] == genre_id:
             return g["genre_name"]
-    return genre_id
+    return str(genre_id)
 
 
 def _stub_catalog():
@@ -1458,4 +1470,4 @@ def _stub_catalog():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)
