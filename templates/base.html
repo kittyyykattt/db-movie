@@ -18,7 +18,14 @@
         <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">Home</a>
         <a href="{{ url_for('all_films_page') }}" class="{% if request.endpoint == 'all_films_page' %}active{% endif %}">Browse</a>
         <a href="{{ url_for('recommendations_page') }}" class="{% if request.endpoint == 'recommendations_page' %}active{% endif %}">Recommendations</a>
-        <span class="auth-badge">{% if current_user %}Logged in{% else %}Guest{% endif %}</span>
+        <span class="auth-badge">
+          {% if current_user %}
+          <span class="auth-email" title="{{ current_user.email }}">{{ current_user.email.split('@')[0] }}</span>
+          <a href="{{ url_for('logout') }}" class="btn btn-clear btn-sm auth-logout">Log out</a>
+          {% else %}
+          <button type="button" class="btn btn-primary btn-sm" id="auth-open">Sign in</button>
+          {% endif %}
+        </span>
       </nav>
     </div>
   </header>
@@ -30,6 +37,33 @@
   <footer class="app-footer">
     <p class="footer-copyright">MovieTrack</p>
   </footer>
+  {% if not current_user %}
+  <dialog id="auth-dialog" class="auth-dialog">
+    <div class="auth-dialog-inner">
+      <button type="button" class="auth-dialog-x" id="auth-close" aria-label="Close">&times;</button>
+      <h2 class="auth-dialog-title">Account</h2>
+      <p class="auth-dialog-lead">Sign in to save star ratings and sync them with the database.</p>
+      <form id="auth-login-form" class="auth-form">
+        <label class="auth-label">Email</label>
+        <input type="email" name="email" required autocomplete="email" class="auth-input" placeholder="you@school.edu" />
+        <label class="auth-label">Password</label>
+        <input type="password" name="password" required autocomplete="current-password" class="auth-input" placeholder="Password" />
+        <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
+        <p class="auth-error" id="auth-login-error" hidden></p>
+      </form>
+      <hr class="auth-divider" />
+      <h3 class="auth-subtitle">New here</h3>
+      <form id="auth-register-form" class="auth-form">
+        <label class="auth-label">Email</label>
+        <input type="email" name="email" required autocomplete="email" class="auth-input" placeholder="you@school.edu" />
+        <label class="auth-label">Password (8+ characters)</label>
+        <input type="password" name="password" required autocomplete="new-password" minlength="8" class="auth-input" placeholder="Choose a password" />
+        <button type="submit" class="btn btn-clear auth-submit">Create account</button>
+        <p class="auth-error" id="auth-register-error" hidden></p>
+      </form>
+    </div>
+  </dialog>
+  {% endif %}
   <script src="{{ url_for('static', filename='js/api.js') }}"></script>
   <script src="{{ url_for('static', filename='js/moviedb.js') }}"></script>
   <script>
@@ -44,6 +78,66 @@
       }
     })();
   </script>
+  {% if not current_user %}
+  <script>
+  (function() {
+    var dlg = document.getElementById('auth-dialog');
+    var openBtn = document.getElementById('auth-open');
+    var closeBtn = document.getElementById('auth-close');
+    if (openBtn && dlg) {
+      openBtn.addEventListener('click', function() { dlg.showModal(); });
+    }
+    if (closeBtn && dlg) {
+      closeBtn.addEventListener('click', function() { dlg.close(); });
+    }
+    function showErr(el, msg) {
+      if (!el) return;
+      el.textContent = msg || '';
+      el.hidden = !msg;
+    }
+    var loginForm = document.getElementById('auth-login-form');
+    var regForm = document.getElementById('auth-register-form');
+    if (loginForm) {
+      loginForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var err = document.getElementById('auth-login-error');
+        showErr(err, '');
+        var fd = new FormData(loginForm);
+        fetch('{{ url_for("login") }}', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ email: fd.get('email'), password: fd.get('password') })
+        }).then(function(res) {
+          return res.json().then(function(body) { return { res: res, body: body }; });
+        }).then(function(x) {
+          if (x.res.ok) { window.location.reload(); return; }
+          showErr(err, (x.body && x.body.error) || 'Sign in failed.');
+        }).catch(function() { showErr(err, 'Network error.'); });
+      });
+    }
+    if (regForm) {
+      regForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var err = document.getElementById('auth-register-error');
+        showErr(err, '');
+        var fd = new FormData(regForm);
+        fetch('{{ url_for("register") }}', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ email: fd.get('email'), password: fd.get('password') })
+        }).then(function(res) {
+          return res.json().then(function(body) { return { res: res, body: body }; });
+        }).then(function(x) {
+          if (x.res.ok) { window.location.reload(); return; }
+          showErr(err, (x.body && x.body.error) || 'Registration failed.');
+        }).catch(function() { showErr(err, 'Network error.'); });
+      });
+    }
+  })();
+  </script>
+  {% endif %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

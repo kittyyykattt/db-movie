@@ -3,95 +3,121 @@
 {% block content %}
 <section class="browse-page reveal-section is-visible">
   <header class="browse-header">
-    <h1 class="section-title">Browse titles</h1>
-    <p class="recommendations-intro browse-lead">
-      Filter movies and TV shows in the catalog, or use the <a href="{{ url_for('index') }}">home search</a> when you already know a title, actor, or director.
+    <h1 class="section-title browse-page-title">Browse titles</h1>
+    <p class="browse-lead">
+      Narrow the catalog with filters below, or jump to <a href="{{ url_for('index') }}">home</a> to search by title, actor, or director.
     </p>
   </header>
 
-  <div class="search-card advanced-search-card browse-filters-card">
+  <div class="browse-filters-shell">
     <form class="browse-filters-form" action="{{ url_for('all_films_page') }}" method="get" id="browse-form">
-      <div class="browse-filters-grid">
-        <label class="search-field search-field-full">
-          <span class="search-field-label">Title contains</span>
-          <input
-            type="search"
-            name="q"
-            placeholder="Optional — match part of a title"
-            value="{{ filters.q }}"
-            autocomplete="off"
-            aria-label="Filter by words in the title"
-          />
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Type</span>
-          <select name="media_type" aria-label="Movies, TV shows, or both">
-            {% for val, label in media_type_options %}
-            <option value="{{ val }}" {% if filters.media_type == val %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="search-field search-field-full">
-          <span class="search-field-label">Genre</span>
-          <select name="genre" multiple size="4" aria-label="Filter by genre">
+      <div class="browse-filters-primary">
+        <div class="browse-field-row browse-field-row--top">
+          <label class="browse-field browse-field-grow">
+            <span class="browse-label">Title contains</span>
+            <input
+              type="search"
+              name="q"
+              placeholder="Words in the title…"
+              value="{{ filters.q }}"
+              autocomplete="off"
+              aria-label="Filter by words in the title"
+            />
+          </label>
+          <label class="browse-field browse-field-sm">
+            <span class="browse-label">Type</span>
+            <select name="media_type" aria-label="Movies, TV shows, or both">
+              {% for val, label in media_type_options %}
+              <option value="{{ val }}" {% if filters.media_type == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="browse-field browse-field-sm">
+            <span class="browse-label">Decade</span>
+            <select name="decade" aria-label="Filter by decade">
+              {% for val, label in decades %}
+              <option value="{{ val }}" {% if filters.decade == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="browse-field browse-field-md">
+            <span class="browse-label">Sort by</span>
+            <select name="sort_by" aria-label="Sort results">
+              {% for val, label in browse_sort_options %}
+              <option value="{{ val }}" {% if filters.sort_by == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+
+        <div class="browse-genre-block">
+          <span class="browse-label browse-label-block">Genres <span class="browse-label-hint">(any match)</span></span>
+          <div class="browse-genre-chips" role="group" aria-label="Filter by genre">
             {% for g in genres %}
-            <option value="{{ g.genre_id }}" {% if g.genre_id in filters.genre %}selected{% endif %}>{{ g.genre_name }}</option>
+            <label class="browse-genre-chip">
+              <input
+                type="checkbox"
+                name="genre"
+                value="{{ g.genre_id }}"
+                {% if filters.genre and (g.genre_id|string in filters.genre or g.genre_id in filters.genre) %}checked{% endif %}
+              />
+              <span>{{ g.genre_name }}</span>
+            </label>
             {% endfor %}
-          </select>
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Decade</span>
-          <select name="decade" aria-label="Filter by decade">
-            {% for val, label in decades %}
-            <option value="{{ val }}" {% if filters.decade == val %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Release year from</span>
-          <input type="number" name="year_from" placeholder="e.g. 2015" value="{{ filters.year_from }}" min="1900" max="2035" aria-label="Release year from" />
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Release year to</span>
-          <input type="number" name="year_to" placeholder="e.g. 2024" value="{{ filters.year_to }}" min="1900" max="2035" aria-label="Release year to" />
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Language</span>
-          <select name="language" aria-label="Primary language">
-            {% for val, label in languages %}
-            <option value="{{ val }}" {% if filters.language == val %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Minimum rating</span>
-          <input type="number" name="rating_min" placeholder="Any" value="{{ filters.rating_min }}" min="1" max="10" step="0.5" aria-label="Minimum average rating" />
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Maximum rating</span>
-          <input type="number" name="rating_max" placeholder="Any" value="{{ filters.rating_max }}" min="1" max="10" step="0.5" aria-label="Maximum average rating" />
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Runtime from (min)</span>
-          <input type="number" name="runtime_min" placeholder="Any" value="{{ filters.runtime_min }}" min="0" max="400" aria-label="Minimum runtime in minutes" />
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Runtime to (min)</span>
-          <input type="number" name="runtime_max" placeholder="Any" value="{{ filters.runtime_max }}" min="0" max="400" aria-label="Maximum runtime in minutes" />
-        </label>
-        <label class="search-field">
-          <span class="search-field-label">Sort by</span>
-          <select name="sort_by" aria-label="Sort results">
-            {% for val, label in browse_sort_options %}
-            <option value="{{ val }}" {% if filters.sort_by == val %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </label>
+          </div>
+        </div>
       </div>
-      <p class="browse-filters-hint">If you set release years, they override the decade. Leave title blank to list everything that matches the other filters.</p>
+
+      {% set adv_open = filters.year_from or filters.year_to or filters.rating_min or filters.rating_max or filters.runtime_min or filters.runtime_max or (filters.language and filters.language != '') %}
+      <details class="browse-filters-advanced"{% if adv_open %} open{% endif %}>
+        <summary class="browse-advanced-summary">
+          <span class="browse-advanced-title">More filters</span>
+          <span class="browse-advanced-sub">Year, language, rating, runtime</span>
+        </summary>
+        <div class="browse-advanced-inner">
+          <div class="browse-field-row">
+            <label class="browse-field">
+              <span class="browse-label">Year from</span>
+              <input type="number" name="year_from" placeholder="e.g. 2015" value="{{ filters.year_from }}" min="1900" max="2035" inputmode="numeric" aria-label="Release year from" />
+            </label>
+            <label class="browse-field">
+              <span class="browse-label">Year to</span>
+              <input type="number" name="year_to" placeholder="e.g. 2024" value="{{ filters.year_to }}" min="1900" max="2035" inputmode="numeric" aria-label="Release year to" />
+            </label>
+            <label class="browse-field">
+              <span class="browse-label">Language</span>
+              <select name="language" aria-label="Primary language">
+                {% for val, label in languages %}
+                <option value="{{ val }}" {% if filters.language == val %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+          <div class="browse-field-row">
+            <label class="browse-field">
+              <span class="browse-label">Min rating</span>
+              <input type="number" name="rating_min" placeholder="Any" value="{{ filters.rating_min }}" min="1" max="10" step="0.5" aria-label="Minimum average rating" />
+            </label>
+            <label class="browse-field">
+              <span class="browse-label">Max rating</span>
+              <input type="number" name="rating_max" placeholder="Any" value="{{ filters.rating_max }}" min="1" max="10" step="0.5" aria-label="Maximum average rating" />
+            </label>
+            <label class="browse-field">
+              <span class="browse-label">Runtime from (min)</span>
+              <input type="number" name="runtime_min" placeholder="Any" value="{{ filters.runtime_min }}" min="0" max="400" aria-label="Minimum runtime in minutes" />
+            </label>
+            <label class="browse-field">
+              <span class="browse-label">Runtime to (min)</span>
+              <input type="number" name="runtime_max" placeholder="Any" value="{{ filters.runtime_max }}" min="0" max="400" aria-label="Maximum runtime in minutes" />
+            </label>
+          </div>
+          <p class="browse-filters-hint">If you set release years, they override the decade. Leave title blank to list everything that matches the other filters.</p>
+        </div>
+      </details>
+
       <div class="browse-form-actions">
-        <button type="submit" class="btn btn-primary search-submit">Apply filters</button>
-        <a href="{{ url_for('all_films_page') }}" class="btn btn-clear">Clear filters</a>
+        <button type="submit" class="btn btn-primary browse-apply-btn">Apply filters</button>
+        <a href="{{ url_for('all_films_page') }}" class="btn btn-clear browse-clear-btn">Clear all</a>
       </div>
     </form>
   </div>

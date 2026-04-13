@@ -8,7 +8,7 @@
     Personalized picks, smarter watch decisions.
     <span class="hero-tagline-cycle" id="hero-tagline-cycle" aria-live="polite">Drama. Sci-Fi. Romance.</span>
   </p>
-  <p class="recommendations-intro hero-search-intro">Search by title, actor, or director. For genres, years, language, and more, use <a href="{{ url_for('all_films_page') }}">Browse</a>.</p>
+  <p class="recommendations-intro hero-search-intro">One search box: <strong>Search</strong> looks in your catalog (by title, actor, or director). <strong>Find on TMDB</strong> uses the same text to search The Movie Database and add films. For filters (genre, year, language), use <a href="{{ url_for('all_films_page') }}">Browse</a>.</p>
   <div class="search-card hero-search-card">
     <form class="hero-search-form" action="{{ url_for('index') }}" method="get" id="search-form" role="search">
       <div class="hero-search-bar">
@@ -28,13 +28,19 @@
         <input
           type="search"
           name="q"
+          id="hero-search-input"
           class="hero-search-input"
           placeholder="Search titles or names…"
           value="{{ filters.q }}"
           autocomplete="off"
           aria-label="Search query"
         />
-        <button type="submit" class="hero-search-submit">Search</button>
+        <div class="hero-search-actions">
+          <button type="submit" class="hero-search-submit">Search</button>
+          {% if tmdb_enabled %}
+          <button type="button" class="hero-search-tmdb" id="tmdb-search-btn">Find on TMDB</button>
+          {% endif %}
+        </div>
       </div>
     </form>
     <p class="hero-search-footnote"><a href="{{ url_for('all_films_page') }}">Browse movies &amp; TV shows</a></p>
@@ -88,6 +94,15 @@
     {% endif %}
     {% endif %}
   </section>
+
+  {% if tmdb_enabled %}
+  <section class="tmdb-discover tmdb-discover-inline reveal-section" id="tmdb-discover" aria-label="TMDB import results">
+    <h2 class="section-title section-title-sub">The Movie Database</h2>
+    <p class="tmdb-inline-lead recommendations-intro">Results appear here when you choose <strong>Find on TMDB</strong> in the bar above. Use <strong>Add to catalog</strong> to copy a title into your database.</p>
+    <p class="tmdb-status" id="tmdb-status" role="status"></p>
+    <div class="movie-grid" id="tmdb-results"></div>
+  </section>
+  {% endif %}
 </section>
 
 <section class="home-genre-carousel reveal-section" aria-hidden="true">
@@ -202,6 +217,9 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/search-ui.js') }}"></script>
+{% if tmdb_enabled %}
+<script src="{{ url_for('static', filename='js/tmdb-discover.js') }}"></script>
+{% endif %}
 <script>
   (function() {
     var taglinePhrases = ['Drama. Sci-Fi. Romance.', 'Thrillers. Comedies. Classics.', 'Action. Mystery. Adventure.'];

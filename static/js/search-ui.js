@@ -31,7 +31,13 @@
       var count = 0;
       var inputs = form.querySelectorAll('input[name], select[name]');
       inputs.forEach(function(inp) {
-        if (inp.name === 'genre') {
+        if (inp.type === 'checkbox') {
+          if (inp.checked) {
+            count++;
+          }
+          return;
+        }
+        if (inp.name === 'genre' && inp.tagName === 'SELECT') {
           if (inp.selectedOptions && inp.selectedOptions.length) {
             count += inp.selectedOptions.length;
           }
@@ -114,7 +120,6 @@
       }
     }
 
-    // Make multi-genre selection easier: click to toggle without Cmd/Ctrl.
     var genreMulti = form.querySelector('select[name="genre"][multiple]');
     if (genreMulti) {
       genreMulti.addEventListener('mousedown', function(e) {

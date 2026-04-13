@@ -37,6 +37,7 @@
         <button type="button" data-value="5" title="5 stars">★</button>
       </div>
       <div class="rating-value-text">Your rating: 0/5</div>
+      <p class="rating-local-hint" id="rating-local-hint" hidden></p>
       <div class="saved" style="display: none;">Rating saved.</div>
     </div>
 
@@ -110,6 +111,7 @@
   const stars = widget.querySelectorAll('.rating-stars button');
   const valueText = widget.querySelector('.rating-value-text');
   const savedEl = widget.querySelector('.saved');
+  const hintEl = document.getElementById('rating-local-hint');
   const likeBtn = document.getElementById('movie-like-toggle');
   let currentValue = 0;
 
@@ -132,8 +134,17 @@
   stars.forEach(btn => {
     btn.addEventListener('click', function() {
       const v = parseInt(this.dataset.value, 10);
-      if (!window.MovieAPI) { setDisplay(v); return; }
-      window.MovieAPI.setRating(movieId, v)
+      if (hintEl) { hintEl.hidden = true; hintEl.textContent = ''; }
+      if (!window.MovieAPI) {
+        if (window.MovieDB) { window.MovieDB.setLocalRating(movieId, v); }
+        setDisplay(v);
+        if (hintEl) {
+          hintEl.textContent = 'Saved on this device only.';
+          hintEl.hidden = false;
+        }
+        return;
+      }
+      window.MovieAPI.setRating(Number(movieId), v)
         .then(function() {
           setDisplay(v);
           if (window.MovieDB) {
@@ -142,15 +153,61 @@
           }
           if (savedEl) { savedEl.style.display = 'block'; setTimeout(function() { savedEl.style.display = 'none'; }, 2000); }
         })
-        .catch(function() { valueText.textContent = 'Could not save rating.'; });
+        .catch(function(err) {
+          if (err && err.status === 401 && window.MovieDB) {
+            window.MovieDB.setLocalRating(movieId, v);
+            setDisplay(v);
+            if (hintEl) {
+              hintEl.textContent = 'Saved on this device. Sign in (header) to store ratings in your account.';
+              hintEl.hidden = false;
+            }
+            return;
+          }
+          valueText.textContent = (err && err.status === 401)
+            ? 'Sign in to save ratings to the database.'
+            : 'Could not save rating.';
+        });
     });
   });
 
-  if (window.MovieAPI && movieId) {
-    window.MovieAPI.getRating(movieId).then(function(r) {
-      if (r && r.rating_value) setDisplay(r.rating_value);
-    }).catch(function() {});
+  function loadRating() {
+    const local = window.MovieDB ? window.MovieDB.getLocalRating(movieId) : null;
+    if (!window.MovieAPI) {
+      if (local != null) {
+        setDisplay(local);
+        if (hintEl) {
+          hintEl.textContent = 'On this device only — sign in to use your account.';
+          hintEl.hidden = false;
+        }
+      }
+      return;
+    }
+    window.MovieAPI.getRating(Number(movieId))
+      .then(function(r) {
+        const server = r && r.rating_value != null ? Number(r.rating_value) : null;
+        if (server != null && server >= 1 && server <= 5) {
+          setDisplay(server);
+          return;
+        }
+        if (local != null) {
+          setDisplay(local);
+          if (hintEl) {
+            hintEl.textContent = 'Device-only rating — sign in to sync with your account.';
+            hintEl.hidden = false;
+          }
+        }
+      })
+      .catch(function() {
+        if (local != null) {
+          setDisplay(local);
+          if (hintEl) {
+            hintEl.textContent = 'Could not reach server; showing device rating.';
+            hintEl.hidden = false;
+          }
+        }
+      });
   }
+  loadRating();
 
   if (likeBtn && window.MovieDB) {
     updateLikeButton();

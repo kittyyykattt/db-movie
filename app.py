@@ -1,5 +1,7 @@
 import os
 from flask import Flask, render_template, request, jsonify, redirect, url_for
+from tmdb_client import format_tmdb_search_result, tmdb_is_configured, tmdb_search_movies
+from movie_import import import_tmdb_movie, preview_tmdb_import
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -52,7 +54,6 @@ def db_create_user(email, password_hash):
 
 
 def db_get_genres():
-    """Fetch all genres from the database."""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute('SELECT genre_id, genre_name FROM "Genres" ORDER BY genre_name')
@@ -60,7 +61,6 @@ def db_get_genres():
 
 
 def db_get_movie_by_id(movie_id):
-    """Fetch a single movie with its genre and average rating."""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute('''
@@ -79,7 +79,6 @@ def db_get_movie_by_id(movie_id):
 
 
 def db_get_credits(movie_id, role=None):
-    """Fetch cast/crew for a movie. role='Director' for directors, role='Actor' for cast."""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             if role:
@@ -108,11 +107,6 @@ def db_search_movies(
     language="", runtime_min=None, runtime_max=None,
     sort_by="", limit=100
 ):
-    """
-    Search movies with filters. Uses ILIKE for title/actor/director search.
-    Max's homepage: simple search by title/actor/director (3 separate ILIKE queries)
-    Max's browse page: master filter query with all filters
-    """
     genre = genre or []
     params = []
     
@@ -121,7 +115,13 @@ def db_search_movies(
             m.movie_id, m.title, m.release_year, m.runtime,
             m.language, m.description, m.poster_url, m.genre_id,
             g.genre_name,
-            COALESCE(avg_r.avg_rating, 0) as average_rating
+            COALESCE(avg_r.avg_rating, 0) as average_rating,
+            (
+                SELECT p.name FROM "Credits" c_d
+                JOIN "People" p ON c_d.person_id = p.person_id
+                WHERE c_d.movie_id = m.movie_id AND c_d.role = 'Director'
+                LIMIT 1
+            ) AS director
         FROM "Movies" m
         LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
         LEFT JOIN (
@@ -133,13 +133,11 @@ def db_search_movies(
     
     joins = []
     conditions = []
-    
-    # Title search (ILIKE)
+
     if q:
         conditions.append("m.title ILIKE %s")
         params.append(f"%{q}%")
-    
-    # Director search (ILIKE) - join Credits and People
+
     if director:
         joins.append('''
             JOIN "Credits" c_dir ON m.movie_id = c_dir.movie_id AND c_dir.role = 'Director'
@@ -147,8 +145,7 @@ def db_search_movies(
         ''')
         conditions.append("p_dir.name ILIKE %s")
         params.append(f"%{director}%")
-    
-    # Actor search (ILIKE) - join Credits and People
+
     if actor:
         joins.append('''
             JOIN "Credits" c_act ON m.movie_id = c_act.movie_id AND c_act.role = 'Actor'
@@ -156,35 +153,36 @@ def db_search_movies(
         ''')
         conditions.append("p_act.name ILIKE %s")
         params.append(f"%{actor}%")
-    
-    # Genre filter
-    if genre:
-        placeholders = ", ".join(["%s"] * len(genre))
+
+    genre_ints = []
+    for g in genre or []:
+        try:
+            genre_ints.append(int(g))
+        except (TypeError, ValueError):
+            continue
+    if genre_ints:
+        placeholders = ", ".join(["%s"] * len(genre_ints))
         conditions.append(f"m.genre_id IN ({placeholders})")
-        params.extend(genre)
-    
-    # Year range filter
+        params.extend(genre_ints)
+
     if year_from:
         conditions.append("m.release_year >= %s")
         params.append(int(year_from))
     if year_to:
         conditions.append("m.release_year <= %s")
         params.append(int(year_to))
-    
-    # Runtime filter
+
     if runtime_min:
         conditions.append("m.runtime >= %s")
         params.append(int(runtime_min))
     if runtime_max:
         conditions.append("m.runtime <= %s")
         params.append(int(runtime_max))
-    
-    # Language filter
+
     if language:
         conditions.append("m.language ILIKE %s")
         params.append(f"%{language}%")
-    
-    # Rating filter (applied in HAVING since it's an aggregate)
+
     having_conditions = []
     if rating_min:
         having_conditions.append("COALESCE(avg_r.avg_rating, 0) >= %s")
@@ -192,8 +190,7 @@ def db_search_movies(
     if rating_max:
         having_conditions.append("COALESCE(avg_r.avg_rating, 0) <= %s")
         params.append(float(rating_max))
-    
-    # Build full query
+
     full_query = base_query
     for join in joins:
         full_query += join
@@ -203,8 +200,7 @@ def db_search_movies(
     
     if having_conditions:
         full_query += " HAVING " + " AND ".join(having_conditions)
-    
-    # Sorting
+
     sort_map = {
         "year_desc": "m.release_year DESC",
         "year_asc": "m.release_year ASC",
@@ -225,7 +221,6 @@ def db_search_movies(
 
 
 def db_get_user_rating(user_id, movie_id):
-    """Get a user's rating for a specific movie."""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute('''
@@ -237,10 +232,8 @@ def db_get_user_rating(user_id, movie_id):
 
 
 def db_set_user_rating(user_id, movie_id, rating_value):
-    """Set or update a user's rating for a movie."""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            # Upsert: update if exists, insert if not
             cur.execute('''
                 INSERT INTO "Ratings" (user_id, movie_id, rating_value, rating_date)
                 VALUES (%s, %s, %s, CURRENT_DATE)
@@ -254,7 +247,6 @@ def db_set_user_rating(user_id, movie_id, rating_value):
 
 
 def db_get_user_ratings_history(user_id):
-    """Get all movies rated by a user with movie details."""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute('''
@@ -279,13 +271,8 @@ def db_get_user_ratings_history(user_id):
 
 
 def db_get_recommendations(user_id, limit=12):
-    """
-    Get movie recommendations based on user's rated movies.
-    Strategy: find movies in genres the user rates highly.
-    """
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            # Get genres user rates highly (avg rating >= 3.5)
             cur.execute('''
                 SELECT m.genre_id, AVG(r.rating_value) as avg_genre_rating
                 FROM "Ratings" r
@@ -297,9 +284,8 @@ def db_get_recommendations(user_id, limit=12):
                 LIMIT 5
             ''', (user_id,))
             top_genres = [row["genre_id"] for row in cur.fetchall()]
-            
+
             if not top_genres:
-                # Fallback: return highly rated movies overall
                 cur.execute('''
                     SELECT 
                         m.movie_id, m.title, m.release_year, m.runtime,
@@ -314,8 +300,7 @@ def db_get_recommendations(user_id, limit=12):
                     LIMIT %s
                 ''', (limit,))
                 return cur.fetchall()
-            
-            # Get movies in user's preferred genres they haven't rated
+
             placeholders = ", ".join(["%s"] * len(top_genres))
             cur.execute(f'''
                 SELECT 
@@ -335,6 +320,212 @@ def db_get_recommendations(user_id, limit=12):
                 LIMIT %s
             ''', (*top_genres, user_id, limit))
             return cur.fetchall()
+
+
+def db_similar_movies(movie_id, limit=10):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT genre_id FROM "Movies" WHERE movie_id = %s', (movie_id,))
+            row = cur.fetchone()
+            if not row or row.get("genre_id") is None:
+                return []
+            gid = row["genre_id"]
+            cur.execute(
+                """
+                SELECT
+                    m.movie_id, m.title, m.release_year, m.runtime,
+                    m.language, m.description, m.poster_url, m.genre_id,
+                    g.genre_name,
+                    COALESCE(avg_r.avg_rating, 0) AS average_rating,
+                    (
+                        SELECT p.name FROM "Credits" c_d
+                        JOIN "People" p ON c_d.person_id = p.person_id
+                        WHERE c_d.movie_id = m.movie_id AND c_d.role = 'Director'
+                        LIMIT 1
+                    ) AS director
+                FROM "Movies" m
+                LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+                LEFT JOIN (
+                    SELECT movie_id, AVG(rating_value) AS avg_rating
+                    FROM "Ratings"
+                    GROUP BY movie_id
+                ) avg_r ON m.movie_id = avg_r.movie_id
+                WHERE m.genre_id = %s AND m.movie_id != %s
+                ORDER BY average_rating DESC NULLS LAST, m.release_year DESC NULLS LAST
+                LIMIT %s
+                """,
+                (gid, movie_id, limit),
+            )
+            return cur.fetchall()
+
+
+def db_user_top_genre_ids(user_id, limit=4):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT m.genre_id, AVG(r.rating_value) AS avg_genre_rating
+                FROM "Ratings" r
+                JOIN "Movies" m ON r.movie_id = m.movie_id
+                WHERE r.user_id = %s AND m.genre_id IS NOT NULL
+                GROUP BY m.genre_id
+                ORDER BY avg_genre_rating DESC
+                LIMIT %s
+                """,
+                (user_id, limit),
+            )
+            return [int(r["genre_id"]) for r in cur.fetchall()]
+
+
+def db_favorite_genre_movies(genre_ids, limit=24):
+    if not genre_ids:
+        return []
+    placeholders = ", ".join(["%s"] * len(genre_ids))
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    m.movie_id, m.title, m.release_year, m.runtime,
+                    m.language, m.description, m.poster_url, m.genre_id,
+                    g.genre_name,
+                    COALESCE(avg_r.avg_rating, 0) AS average_rating,
+                    (
+                        SELECT p.name FROM "Credits" c_d
+                        JOIN "People" p ON c_d.person_id = p.person_id
+                        WHERE c_d.movie_id = m.movie_id AND c_d.role = 'Director'
+                        LIMIT 1
+                    ) AS director
+                FROM "Movies" m
+                LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+                LEFT JOIN (
+                    SELECT movie_id, AVG(rating_value) AS avg_rating
+                    FROM "Ratings"
+                    GROUP BY movie_id
+                ) avg_r ON m.movie_id = avg_r.movie_id
+                WHERE m.genre_id IN ({placeholders})
+                ORDER BY average_rating DESC NULLS LAST, m.release_year DESC NULLS LAST
+                LIMIT %s
+                """,
+                (*genre_ids, limit),
+            )
+            return cur.fetchall()
+
+
+def _use_db():
+    return bool(DATABASE_URL)
+
+
+def _serialize_db_search_row(row):
+    r = dict(row)
+    ar = r.get("average_rating")
+    try:
+        r["average_rating"] = float(ar) if ar is not None else 0.0
+    except (TypeError, ValueError):
+        r["average_rating"] = 0.0
+    gn = r.get("genre_name")
+    r["genre_names"] = [gn] if gn else []
+    desc = r.get("description")
+    r["synopsis"] = (desc or "") if desc is not None else ""
+    r["media_type"] = r.get("media_type") if r.get("media_type") else "movie"
+    if not r.get("director"):
+        r["director"] = ""
+    return r
+
+
+def _movie_detail_from_db(movie_id):
+    try:
+        row = db_get_movie_by_id(movie_id)
+    except Exception:
+        return None
+    if not row:
+        return None
+    r = dict(row)
+    try:
+        r["average_rating"] = float(r.get("average_rating") or 0)
+    except (TypeError, ValueError):
+        r["average_rating"] = 0.0
+    gn = r.get("genre_name")
+    r["genre_names"] = [gn] if gn else []
+    return r
+
+
+def _recommendation_from_db_row(row, top_genre_ids):
+    card = _serialize_db_search_row(row)
+    gid = row.get("genre_id")
+    overlap = 0
+    if top_genre_ids and gid is not None:
+        try:
+            overlap = 1 if int(gid) in top_genre_ids else 0
+        except (TypeError, ValueError):
+            overlap = 0
+    base = 58 + overlap * 14 + int(card["average_rating"] * 2.2)
+    card["match_percentage"] = max(62, min(98, base))
+    return card
+
+
+def _db_search_or_stub(**kwargs):
+    media_type = kwargs.pop("media_type", "")
+    if _use_db():
+        try:
+            rows = db_search_movies(**kwargs)
+            cards = [_serialize_db_search_row(r) for r in rows]
+            mt = (media_type or "").strip().lower()
+            if mt in ("movie", "show"):
+                cards = [c for c in cards if c.get("media_type") == mt]
+            return cards
+        except Exception:
+            pass
+    return _stub_search(media_type=media_type, **kwargs)
+
+
+def _recommendations_for_home():
+    if current_user.is_authenticated and _use_db():
+        try:
+            uid = int(current_user.id)
+            top = db_user_top_genre_ids(uid)
+            rows = db_get_recommendations(uid, limit=12)
+            return [_recommendation_from_db_row(r, top) for r in rows]
+        except Exception:
+            pass
+    return _stub_recommendations()
+
+
+def _user_top_genres_for_home():
+    if current_user.is_authenticated and _use_db():
+        try:
+            gids = db_user_top_genre_ids(int(current_user.id))
+            by_id = {g["genre_id"]: g for g in get_genres()}
+            found = [by_id[g] for g in gids if g in by_id]
+            if found:
+                return found
+        except Exception:
+            pass
+    return _stub_user_top_genres()
+
+
+def _favorite_genre_recommendations_for_home():
+    if current_user.is_authenticated and _use_db():
+        try:
+            gids = db_user_top_genre_ids(int(current_user.id), limit=4)
+            if not gids:
+                raise ValueError("no genres")
+            rows = db_favorite_genre_movies(gids, limit=24)
+            by_gid = {g["genre_id"]: g["genre_name"] for g in get_genres()}
+            genre_rank = {gid: idx for idx, gid in enumerate(gids)}
+            out = []
+            for r in rows:
+                card = _serialize_db_search_row(r)
+                gid = r.get("genre_id")
+                if gid is not None and gid in genre_rank:
+                    card["favorite_genre_match"] = gid
+                    card["favorite_genre_match_name"] = by_gid.get(gid, "")
+                out.append(card)
+            if out:
+                return out
+        except Exception:
+            pass
+    return _stub_favorite_genre_recommendations()
 
 
 login_manager = LoginManager()
@@ -460,7 +651,7 @@ def index():
     results = []
     search_attempted = "q" in request.args
     if search_attempted and q:
-        results = _stub_search(
+        results = _db_search_or_stub(
             q=quick["title_q"],
             director=quick["director_q"],
             actor=quick["actor_q"],
@@ -486,9 +677,10 @@ def index():
         search_by=search_by,
         search_by_label=search_by_label,
         genres=get_genres(),
-        recommendations=_stub_recommendations(),
-        top_favorite_genres=_stub_user_top_genres(),
-        favorite_genre_recommendations=_stub_favorite_genre_recommendations(),
+        tmdb_enabled=tmdb_is_configured(),
+        recommendations=_recommendations_for_home(),
+        top_favorite_genres=_user_top_genres_for_home(),
+        favorite_genre_recommendations=_favorite_genre_recommendations_for_home(),
     )
 
 
@@ -508,7 +700,7 @@ def all_films_page():
     sort_by = request.args.get("sort_by", "year_desc").strip()
 
     y_from, y_to = _browse_year_bounds(decade, year_from, year_to)
-    results = _stub_search(
+    results = _db_search_or_stub(
         q=q,
         genre=genre,
         year_from=y_from,
@@ -555,23 +747,45 @@ def search_page():
 
 @app.route("/movie/<int:movie_id>")
 def movie_detail(movie_id):
-    movie = _stub_movie(movie_id)
+    movie = None
+    cast, crew, similar_movies = [], [], []
+    if _use_db():
+        try:
+            movie = _movie_detail_from_db(movie_id)
+            if movie:
+                cast = db_get_credits(movie_id, role="Actor")
+                crew = db_get_credits(movie_id, role="Director")
+                sim_rows = db_similar_movies(movie_id)
+                similar_movies = [_serialize_db_search_row(r) for r in sim_rows]
+        except Exception:
+            movie = None
     if not movie:
-        return "Movie not found", 404
-    cast = _stub_credits(movie_id, role="cast")
-    crew = _stub_credits(movie_id, role="crew")
+        movie = _stub_movie(movie_id)
+        if not movie:
+            return "Movie not found", 404
+        cast = _stub_credits(movie_id, role="cast")
+        crew = _stub_credits(movie_id, role="crew")
+        similar_movies = _stub_similar_movies(movie_id)
     return render_template(
         "movie.html",
         movie=movie,
         cast=cast,
         crew=crew,
-        similar_movies=_stub_similar_movies(movie_id),
+        similar_movies=similar_movies,
     )
 
 
 @app.route("/recommendations")
 def recommendations_page():
     recs = _stub_recommendations()
+    if current_user.is_authenticated and _use_db():
+        try:
+            uid = int(current_user.id)
+            top = db_user_top_genre_ids(uid)
+            rows = db_get_recommendations(uid, limit=48)
+            recs = [_recommendation_from_db_row(r, top) for r in rows]
+        except Exception:
+            recs = _stub_recommendations()
     return render_template("recommendations.html", recommendations=recs, genres=get_genres())
 
 
@@ -600,7 +814,7 @@ def api_search():
     runtime_min = request.args.get("runtime_min", "").strip()
     runtime_max = request.args.get("runtime_max", "").strip()
     sort_by = request.args.get("sort_by", "").strip()
-    results = _stub_search(
+    results = _db_search_or_stub(
         q=q, director=director, actor=actor,
         genre=genre, year_from=year_from, year_to=year_to,
         rating_min=rating_min, rating_max=rating_max,
@@ -625,7 +839,7 @@ def api_browse():
     runtime_max = request.args.get("runtime_max", "").strip()
     sort_by = request.args.get("sort_by", "year_desc").strip()
     y_from, y_to = _browse_year_bounds(decade, year_from, year_to)
-    results = _stub_search(
+    results = _db_search_or_stub(
         q=q,
         genre=genre,
         year_from=y_from,
@@ -643,6 +857,14 @@ def api_browse():
 
 @app.route("/api/movies/<int:movie_id>")
 def api_movie(movie_id):
+    if _use_db():
+        try:
+            m = _movie_detail_from_db(movie_id)
+            if m:
+                payload = {k: v for k, v in m.items() if k not in ("synopsis",)}
+                return jsonify(payload)
+        except Exception:
+            pass
     movie = _stub_movie(movie_id)
     if not movie:
         return jsonify({"error": "Not found"}), 404
@@ -660,6 +882,14 @@ def api_movies_bulk():
         return jsonify([])
     out = []
     for i in ids:
+        if _use_db():
+            try:
+                m = _movie_detail_from_db(i)
+                if m:
+                    out.append({k: v for k, v in m.items() if k not in ("synopsis",)})
+                    continue
+            except Exception:
+                pass
         m = _stub_movie(i)
         if m:
             out.append(m)
@@ -671,28 +901,105 @@ def api_get_rating():
     movie_id = request.args.get("movie_id", type=int)
     if not movie_id:
         return jsonify({"error": "movie_id required"}), 400
+    if not current_user.is_authenticated:
+        return jsonify({"rating_value": None})
+    if _use_db():
+        try:
+            row = db_get_user_rating(int(current_user.id), movie_id)
+            if row and row.get("rating_value") is not None:
+                return jsonify({"rating_value": int(row["rating_value"])})
+        except Exception:
+            pass
     return jsonify({"rating_value": None})
 
 
 @app.route("/api/ratings", methods=["POST"])
 def api_set_rating():
+    if not current_user.is_authenticated:
+        return jsonify({"error": "login required"}), 401
     data = request.get_json() or {}
     movie_id = data.get("movie_id")
     rating_value = data.get("rating_value")
     if movie_id is None or rating_value is None:
         return jsonify({"error": "movie_id and rating_value required"}), 400
+    try:
+        rating_value = int(rating_value)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid rating_value"}), 400
     if not (1 <= rating_value <= 5):
         return jsonify({"error": "rating_value must be 1–5"}), 400
+    if _use_db():
+        try:
+            db_set_user_rating(int(current_user.id), int(movie_id), rating_value)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
     return jsonify({"ok": True, "movie_id": movie_id, "rating_value": rating_value})
 
 
 @app.route("/api/recommendations")
 def api_recommendations():
+    if current_user.is_authenticated and _use_db():
+        try:
+            uid = int(current_user.id)
+            top = db_user_top_genre_ids(uid)
+            rows = db_get_recommendations(uid, limit=24)
+            return jsonify([_recommendation_from_db_row(r, top) for r in rows])
+        except Exception:
+            pass
     return jsonify(_stub_recommendations())
 
 
+@app.route("/api/tmdb/search")
+def api_tmdb_search():
+    q = request.args.get("q", "").strip()
+    if len(q) < 2:
+        return jsonify([])
+    if not tmdb_is_configured():
+        return jsonify({"error": "TMDB not configured"}), 503
+    try:
+        data = tmdb_search_movies(q)
+        results = [format_tmdb_search_result(r) for r in (data.get("results") or [])[:15]]
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/tmdb/preview")
+def api_tmdb_preview():
+    tmdb_id = request.args.get("tmdb_id", type=int)
+    if not tmdb_id:
+        return jsonify({"error": "tmdb_id required"}), 400
+    if not tmdb_is_configured():
+        return jsonify({"error": "TMDB not configured"}), 503
+    try:
+        preview = preview_tmdb_import(tmdb_id, get_genres())
+        return jsonify(preview)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/movies/from-tmdb", methods=["POST"])
+def api_movies_from_tmdb():
+    if not _use_db():
+        return jsonify({"error": "database not configured"}), 503
+    data = request.get_json(silent=True) or {}
+    tmdb_id = data.get("tmdb_id")
+    if tmdb_id is None:
+        return jsonify({"error": "tmdb_id required"}), 400
+    try:
+        tid = int(tmdb_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid tmdb_id"}), 400
+    try:
+        result = import_tmdb_movie(tid, get_genres())
+        return jsonify(result)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
 def get_genres():
-    """Get genres from database, fallback to stub data if DB fails."""
     try:
         rows = db_get_genres()
         if rows:
@@ -703,7 +1010,6 @@ def get_genres():
 
 
 def _stub_genres():
-    """Fallback genre data if database is unavailable."""
     return [
         {"genre_id": 1, "genre_name": "Action"},
         {"genre_id": 2, "genre_name": "Comedy"},
@@ -920,7 +1226,7 @@ def _stub_recommendations():
 
 
 def _stub_user_top_genres():
-    ids = [3, 6, 7, 2]  # drama, sci-fi, thriller, comedy (using numeric IDs from DB)
+    ids = [3, 6, 7, 2]
     by_id = {g["genre_id"]: g for g in get_genres()}
     return [by_id[g] for g in ids if g in by_id][:4]
 

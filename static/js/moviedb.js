@@ -2,6 +2,7 @@
   var LIKED_KEY = 'moviedb_liked';
   var HISTORY_KEY = 'moviedb_search_history';
   var PREFS_KEY = 'moviedb_prefs';
+  var RATINGS_KEY = 'moviedb_ratings';
   var HISTORY_MAX = 5;
 
   function getLiked() {
@@ -97,6 +98,35 @@
     } catch (_) {}
   }
 
+  function getRatingsMap() {
+    try {
+      var raw = localStorage.getItem(RATINGS_KEY);
+      var o = JSON.parse(raw);
+      return o && typeof o === 'object' ? o : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function getLocalRating(movieId) {
+    var id = String(movieId);
+    var v = getRatingsMap()[id];
+    if (v == null) return null;
+    var n = Number(v);
+    return n >= 1 && n <= 5 ? n : null;
+  }
+
+  function setLocalRating(movieId, ratingValue) {
+    var id = String(movieId);
+    var n = Number(ratingValue);
+    if (!id || n < 1 || n > 5) return;
+    try {
+      var map = getRatingsMap();
+      map[id] = n;
+      localStorage.setItem(RATINGS_KEY, JSON.stringify(map));
+    } catch (_) {}
+  }
+
   window.MovieDB = {
     getLiked: getLiked,
     setLiked: setLiked,
@@ -107,6 +137,8 @@
     addSearchHistory: addSearchHistory,
     removeSearchHistory: removeSearchHistory,
     getPrefs: getPrefs,
-    setPrefs: setPrefs
+    setPrefs: setPrefs,
+    getLocalRating: getLocalRating,
+    setLocalRating: setLocalRating
   };
 })();

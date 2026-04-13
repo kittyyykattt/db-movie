@@ -3,6 +3,7 @@ const API_BASE = '/api';
 async function request(path, options = {}) {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   const config = {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -84,6 +85,23 @@ const api = {
 
   recommendations() {
     return request('/recommendations');
+  },
+
+  tmdbSearch(q) {
+    const qs = new URLSearchParams();
+    if (q) qs.set('q', q);
+    return request(`/tmdb/search?${qs.toString()}`);
+  },
+
+  tmdbPreview(tmdbId) {
+    return request(`/tmdb/preview?tmdb_id=${encodeURIComponent(tmdbId)}`);
+  },
+
+  importFromTmdb(tmdbId) {
+    return request('/movies/from-tmdb', {
+      method: 'POST',
+      body: { tmdb_id: tmdbId },
+    });
   },
 };
 
