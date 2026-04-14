@@ -1,9 +1,7 @@
 (function() {
   var LIKED_KEY = 'moviedb_liked';
-  var HISTORY_KEY = 'moviedb_search_history';
   var PREFS_KEY = 'moviedb_prefs';
   var RATINGS_KEY = 'moviedb_ratings';
-  var HISTORY_MAX = 5;
 
   function getLiked() {
     try {
@@ -50,35 +48,6 @@
     if (ratingValue >= 4 && i < 0) ids.push(movieId);
     if (ratingValue < 4 && i >= 0) ids.splice(i, 1);
     setLiked(ids);
-  }
-
-  function getSearchHistory() {
-    try {
-      var raw = localStorage.getItem(HISTORY_KEY);
-      var arr = JSON.parse(raw);
-      return Array.isArray(arr) ? arr.slice(0, HISTORY_MAX) : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  function addSearchHistory(term) {
-    term = String(term).trim();
-    if (!term) return;
-    var arr = getSearchHistory();
-    arr = arr.filter(function(t) { return t !== term; });
-    arr.unshift(term);
-    arr = arr.slice(0, HISTORY_MAX);
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(arr));
-    } catch (_) {}
-  }
-
-  function removeSearchHistory(term) {
-    var arr = getSearchHistory().filter(function(t) { return t !== term; });
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(arr));
-    } catch (_) {}
   }
 
   function getPrefs() {
@@ -133,9 +102,6 @@
     toggleLiked: toggleLiked,
     isLiked: isLiked,
     setLikedFromRating: setLikedFromRating,
-    getSearchHistory: getSearchHistory,
-    addSearchHistory: addSearchHistory,
-    removeSearchHistory: removeSearchHistory,
     getPrefs: getPrefs,
     setPrefs: setPrefs,
     getLocalRating: getLocalRating,

@@ -8,9 +8,9 @@
   {% if recommendations is defined and recommendations %}
   <div class="reco-controls">
     <div class="reco-filter-pills" id="reco-filter-pills">
-      <button type="button" class="genre-filter-pill is-active" data-genre="all">All</button>
+      <button type="button" class="genre-filter-pill is-active" data-genre="" data-genre-id="">All</button>
       {% for g in genres %}
-      <button type="button" class="genre-filter-pill" data-genre="{{ g.genre_name }}">{{ g.genre_name }}</button>
+      <button type="button" class="genre-filter-pill" data-genre="{{ g.genre_name }}" data-genre-id="{{ g.genre_id }}">{{ g.genre_name }}</button>
       {% endfor %}
     </div>
     <label class="reco-sort-wrap" for="reco-sort">
@@ -28,6 +28,7 @@
     <article
       class="recommendation-card curated-card"
       data-movie-id="{{ m.movie_id }}"
+      data-genre-id="{{ m.genre_id or '' }}"
       data-genre="{{ m.genre_name or '' }}"
       data-release-year="{{ m.release_year }}"
       data-rating="{{ m.average_rating }}"
@@ -100,7 +101,9 @@
     var filterButtons = document.querySelectorAll('#reco-filter-pills .genre-filter-pill');
     if (!list || !cards.length) return;
 
-    var activeGenre = 'all';
+    function norm(s) {
+      return String(s || '').trim().toLowerCase();
+    }
 
     function applyGenrePalettes() {
       var paletteByGenre = {
@@ -141,10 +144,30 @@
       });
     }
 
-    function applyFilter() {
+    function applyFilterFromButton(btn) {
+      var wantName = norm(btn.getAttribute('data-genre') || '');
+      var wantId = String(btn.getAttribute('data-genre-id') || '').trim();
+      var all = !wantName && !wantId;
+
       cards.forEach(function(card) {
-        var genre = String(card.dataset.genre || '').toLowerCase();
-        var show = activeGenre === 'all' || genre.indexOf(activeGenre) >= 0;
+        var cid = String(card.getAttribute('data-genre-id') || '').trim();
+        var gname = norm(card.getAttribute('data-genre') || '');
+        var show;
+
+        if (all) {
+          show = true;
+        } else if (wantId) {
+          if (cid && cid === wantId) {
+            show = true;
+          } else if (!cid && gname && gname === wantName) {
+            show = true;
+          } else {
+            show = false;
+          }
+        } else {
+          show = gname === wantName;
+        }
+
         card.style.display = show ? '' : 'none';
       });
       sortVisibleCards();
@@ -154,8 +177,7 @@
       btn.addEventListener('click', function() {
         filterButtons.forEach(function(other) { other.classList.remove('is-active'); });
         btn.classList.add('is-active');
-        activeGenre = String(btn.getAttribute('data-genre') || 'all').toLowerCase();
-        applyFilter();
+        applyFilterFromButton(btn);
       });
     });
 
@@ -164,7 +186,10 @@
     }
 
     applyGenrePalettes();
-    applyFilter();
+    var activePill = document.querySelector('#reco-filter-pills .genre-filter-pill.is-active');
+    if (activePill) {
+      applyFilterFromButton(activePill);
+    }
   })();
 </script>
 {% endif %}

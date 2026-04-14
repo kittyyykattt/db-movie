@@ -24,7 +24,7 @@ class UserFlowTests(unittest.TestCase):
     def test_browse_renders(self):
         r = self.client.get("/films")
         self.assertEqual(r.status_code, 200)
-        self.assertIn(b"Browse titles", r.data)
+        self.assertIn(b"All films", r.data)
 
     def test_recommendations_renders(self):
         r = self.client.get("/recommendations")

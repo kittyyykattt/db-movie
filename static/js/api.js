@@ -50,6 +50,8 @@ const api = {
       q.set('genre', params.genre);
     }
     if (params.q) q.set('q', params.q);
+    if (params.actor) q.set('actor', params.actor);
+    if (params.director) q.set('director', params.director);
     if (params.decade) q.set('decade', params.decade);
     if (params.year_from != null && params.year_from !== '') q.set('year_from', params.year_from);
     if (params.year_to != null && params.year_to !== '') q.set('year_to', params.year_to);
@@ -87,6 +89,10 @@ const api = {
     return request('/recommendations');
   },
 
+  meRatings() {
+    return request('/me/ratings');
+  },
+
   tmdbSearch(q) {
     const qs = new URLSearchParams();
     if (q) qs.set('q', q);
@@ -99,6 +105,13 @@ const api = {
 
   importFromTmdb(tmdbId) {
     return request('/movies/from-tmdb', {
+      method: 'POST',
+      body: { tmdb_id: tmdbId },
+    });
+  },
+
+  likeFromTmdb(tmdbId) {
+    return request('/movies/like-from-tmdb', {
       method: 'POST',
       body: { tmdb_id: tmdbId },
     });

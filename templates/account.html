@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}My account{% endblock %}
+{% block content %}
+<div class="account-page">
+  <header class="account-header">
+    <h1 class="account-title">My account</h1>
+    {% if current_user %}
+    <p class="account-email">{{ current_user.email }}</p>
+    <p class="account-auth-note">
+      {% if supabase_enabled %}
+      Sign-in is handled by <strong>Supabase Auth</strong>. Ratings stay in the MovieTrack database.
+      {% else %}
+      You are signed in to MovieTrack. Ratings are stored in the database.
+      {% endif %}
+    </p>
+    {% else %}
+    <p class="account-guest-lead">Sign in to see your star ratings and history.</p>
+    <p class="account-actions">
+      <button type="button" class="btn btn-primary" id="account-auth-open">Sign in</button>
+    </p>
+    {% endif %}
+  </header>
+
+  {% if current_user %}
+  <section class="account-ratings-section" aria-labelledby="account-ratings-heading">
+    <h2 id="account-ratings-heading" class="account-section-title">Your ratings</h2>
+    {% if ratings %}
+    <div class="account-ratings-table-wrap">
+      <table class="account-ratings-table">
+        <thead>
+          <tr>
+            <th scope="col">Film</th>
+            <th scope="col">Year</th>
+            <th scope="col">Your stars</th>
+            <th scope="col">Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in ratings %}
+          <tr>
+            <td>
+              <a href="{{ url_for('movie_detail', movie_id=row.movie_id) }}" class="account-film-link">
+                {% if row.poster_url %}
+                <img src="{{ row.poster_url }}" alt="" class="account-film-thumb" loading="lazy" />
+                {% endif %}
+                <span>{{ row.title }}</span>
+              </a>
+              {% if row.genre_name %}
+              <span class="account-film-genre">{{ row.genre_name }}</span>
+              {% endif %}
+            </td>
+            <td>{{ row.release_year or '—' }}</td>
+            <td>
+              <span class="account-star-val" title="{{ row.rating_value }} out of 5">{{ row.rating_value }}/5</span>
+            </td>
+            <td>{{ row.rating_date.strftime('%Y-%m-%d') if row.rating_date else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="account-empty">
+      <p>You have not rated any films yet. Open a title and use the star row on the detail page.</p>
+      <a href="{{ url_for('index') }}" class="btn btn-clear">Browse home</a>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if not current_user %}
+<script>
+  (function() {
+    var btn = document.getElementById('account-auth-open');
+    var openNav = document.getElementById('auth-open');
+    if (btn && openNav) {
+      btn.addEventListener('click', function() { openNav.click(); });
+    }
+  })();
+</script>
+{% endif %}
+{% endblock %}

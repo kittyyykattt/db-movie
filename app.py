@@ -1,4 +1,9 @@
 import os
+import secrets
+
+import jwt
+import psycopg2.errors
+from jwt.exceptions import InvalidTokenError
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from tmdb_client import format_tmdb_search_result, tmdb_is_configured, tmdb_search_movies
 from movie_import import import_tmdb_movie, preview_tmdb_import
@@ -22,6 +27,35 @@ app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+SUPABASE_ANON_KEY = (os.getenv("SUPABASE_ANON_KEY") or "").strip()
+SUPABASE_JWT_SECRET = (os.getenv("SUPABASE_JWT_SECRET") or "").strip()
+
+
+def supabase_auth_env_ready():
+    return bool(SUPABASE_URL and SUPABASE_ANON_KEY and SUPABASE_JWT_SECRET)
+
+
+def _supabase_jwt_issuer():
+    if not SUPABASE_URL:
+        return None
+    return f"{SUPABASE_URL}/auth/v1"
+
+
+def verify_supabase_access_token(token: str) -> dict:
+    if not SUPABASE_JWT_SECRET:
+        raise RuntimeError("SUPABASE_JWT_SECRET is not set")
+    issuer = _supabase_jwt_issuer()
+    common = {"algorithms": ["HS256"], "audience": "authenticated"}
+    try:
+        if issuer:
+            return jwt.decode(token, SUPABASE_JWT_SECRET, issuer=issuer, **common)
+        return jwt.decode(token, SUPABASE_JWT_SECRET, **common)
+    except InvalidTokenError:
+        if issuer:
+            return jwt.decode(token, SUPABASE_JWT_SECRET, **common)
+        raise
+
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
@@ -30,14 +64,20 @@ def get_db_connection():
 def db_get_user_by_id(user_id):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT user_id, email, password_hash FROM "Users" WHERE user_id = %s', (user_id,))
+            cur.execute(
+                'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE user_id = %s',
+                (user_id,),
+            )
             return cur.fetchone()
 
 
 def db_get_user_by_email(email):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT user_id, email, password_hash FROM "Users" WHERE LOWER(email) = LOWER(%s)', (email,))
+            cur.execute(
+                'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE LOWER(email) = LOWER(%s)',
+                (email,),
+            )
             return cur.fetchone()
 
 
@@ -270,6 +310,70 @@ def db_get_user_ratings_history(user_id):
             return cur.fetchall()
 
 
+def db_ensure_user_for_supabase(email: str, supabase_uid: str):
+    """Create or link a Users row for a Supabase Auth identity."""
+    email = str(email or "").strip().lower()
+    supabase_uid = str(supabase_uid or "").strip()
+    if not email or not supabase_uid:
+        raise ValueError("email and Supabase user id are required")
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE supabase_uid = %s',
+                (supabase_uid,),
+            )
+            row = cur.fetchone()
+            if row:
+                return row
+            cur.execute(
+                'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE LOWER(email) = LOWER(%s)',
+                (email,),
+            )
+            row = cur.fetchone()
+            if row:
+                cur.execute(
+                    'UPDATE "Users" SET supabase_uid = %s WHERE user_id = %s',
+                    (supabase_uid, row["user_id"]),
+                )
+                conn.commit()
+                cur.execute(
+                    'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE user_id = %s',
+                    (row["user_id"],),
+                )
+                return cur.fetchone()
+            password_hash = generate_password_hash(secrets.token_urlsafe(32))
+            cur.execute(
+                """
+                INSERT INTO "Users" (email, password_hash, username, join_date, supabase_uid)
+                VALUES (%s, %s, %s, CURRENT_DATE, %s)
+                RETURNING user_id, email, password_hash, supabase_uid
+                """,
+                (email, password_hash, email.split("@")[0], supabase_uid),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return row
+
+
+def db_touch_email_verified(user_id: int, verified: bool):
+    if not verified or not DATABASE_URL:
+        return
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE "Users"
+                    SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP)
+                    WHERE user_id = %s
+                    """,
+                    (user_id,),
+                )
+                conn.commit()
+    except (psycopg2.errors.UndefinedColumn, psycopg2.errors.UndefinedTable):
+        pass
+
+
 def db_get_recommendations(user_id, limit=12):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -319,6 +423,29 @@ def db_get_recommendations(user_id, limit=12):
                 ORDER BY average_rating DESC
                 LIMIT %s
             ''', (*top_genres, user_id, limit))
+            return cur.fetchall()
+
+
+def db_get_spotlight_recommendations(limit=12):
+    """Catalog-wide picks for guests or fallback UI; IDs match the database."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    m.movie_id, m.title, m.release_year, m.runtime,
+                    m.language, m.poster_url, m.genre_id,
+                    g.genre_name,
+                    COALESCE(AVG(r.rating_value), 0) as average_rating
+                FROM "Movies" m
+                LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+                LEFT JOIN "Ratings" r ON m.movie_id = r.movie_id
+                GROUP BY m.movie_id, g.genre_name
+                ORDER BY average_rating DESC NULLS LAST, m.release_year DESC NULLS LAST
+                LIMIT %s
+                """,
+                (limit,),
+            )
             return cur.fetchall()
 
 
@@ -416,6 +543,17 @@ def _use_db():
     return bool(DATABASE_URL)
 
 
+def _normalize_poster_url(url):
+    if not url or not isinstance(url, str):
+        return None
+    u = url.strip()
+    if not u:
+        return None
+    if u.startswith("//"):
+        return "https:" + u
+    return u
+
+
 def _serialize_db_search_row(row):
     r = dict(row)
     ar = r.get("average_rating")
@@ -430,6 +568,7 @@ def _serialize_db_search_row(row):
     r["media_type"] = r.get("media_type") if r.get("media_type") else "movie"
     if not r.get("director"):
         r["director"] = ""
+    r["poster_url"] = _normalize_poster_url(r.get("poster_url"))
     return r
 
 
@@ -447,6 +586,7 @@ def _movie_detail_from_db(movie_id):
         r["average_rating"] = 0.0
     gn = r.get("genre_name")
     r["genre_names"] = [gn] if gn else []
+    r["poster_url"] = _normalize_poster_url(r.get("poster_url"))
     return r
 
 
@@ -480,12 +620,15 @@ def _db_search_or_stub(**kwargs):
 
 
 def _recommendations_for_home():
-    if current_user.is_authenticated and _use_db():
+    if _use_db():
         try:
-            uid = int(current_user.id)
-            top = db_user_top_genre_ids(uid)
-            rows = db_get_recommendations(uid, limit=12)
-            return [_recommendation_from_db_row(r, top) for r in rows]
+            if current_user.is_authenticated:
+                uid = int(current_user.id)
+                top = db_user_top_genre_ids(uid)
+                rows = db_get_recommendations(uid, limit=12)
+                return [_recommendation_from_db_row(r, top) for r in rows]
+            rows = db_get_spotlight_recommendations(limit=12)
+            return [_recommendation_from_db_row(r, []) for r in rows]
         except Exception:
             pass
     return _stub_recommendations()
@@ -502,6 +645,75 @@ def _user_top_genres_for_home():
         except Exception:
             pass
     return _stub_user_top_genres()
+
+
+def _ensure_genre_ids_for_home_cards(cards):
+    """
+    Many DB rows have NULL genre_id (legacy seed). Without genre_id / genre_name,
+    client-side genre filters cannot match. Assign a stable bucket genre from the
+    user's top genres (or the first catalog genres) so filters work until data is backfilled.
+    """
+    if not cards:
+        return cards
+    genres_list = get_genres()
+    by_gid = {g["genre_id"]: g["genre_name"] for g in genres_list}
+    # Must match the same four genres shown as filter pills on the home page.
+    gids = [g["genre_id"] for g in _user_top_genres_for_home()[:4]]
+    if not gids:
+        try:
+            if current_user.is_authenticated:
+                gids = db_user_top_genre_ids(int(current_user.id), limit=4)
+        except Exception:
+            gids = []
+    if not gids:
+        gids = [g["genre_id"] for g in genres_list[:4]]
+    if not gids:
+        return cards
+    n = len(gids)
+    for card in cards:
+        gid = card.get("genre_id")
+        if gid is not None:
+            if not card.get("genre_name"):
+                card["genre_name"] = by_gid.get(gid, "")
+            if not card.get("favorite_genre_match_name"):
+                card["favorite_genre_match"] = gid
+                card["favorite_genre_match_name"] = by_gid.get(gid, "")
+            continue
+        mid = int(card.get("movie_id") or 0)
+        gid = gids[mid % n]
+        nm = by_gid.get(gid, "")
+        card["genre_id"] = gid
+        card["genre_name"] = nm
+        card["favorite_genre_match"] = gid
+        card["favorite_genre_match_name"] = nm
+    return cards
+
+
+def _ensure_genre_ids_for_recommendations_cards(cards):
+    """
+    Recommendations page filters use the full genre catalog. When Movies.genre_id is NULL,
+    assign a stable bucket across all genres so pills match card data-genre-id.
+    """
+    if not cards:
+        return cards
+    genres_list = get_genres()
+    if not genres_list:
+        return cards
+    by_gid = {g["genre_id"]: g["genre_name"] for g in genres_list}
+    gids = [g["genre_id"] for g in genres_list]
+    n = len(gids)
+    for card in cards:
+        gid = card.get("genre_id")
+        if gid is not None:
+            if not card.get("genre_name"):
+                card["genre_name"] = by_gid.get(gid, "")
+            continue
+        mid = int(card.get("movie_id") or 0)
+        gid = gids[mid % n]
+        nm = by_gid.get(gid, "")
+        card["genre_id"] = gid
+        card["genre_name"] = nm
+    return cards
 
 
 def _favorite_genre_recommendations_for_home():
@@ -522,7 +734,14 @@ def _favorite_genre_recommendations_for_home():
                     card["favorite_genre_match_name"] = by_gid.get(gid, "")
                 out.append(card)
             if out:
-                return out
+                return _ensure_genre_ids_for_home_cards(out)
+        except Exception:
+            pass
+    if _use_db():
+        try:
+            rows = db_get_spotlight_recommendations(limit=24)
+            out = [_serialize_db_search_row(r) for r in rows]
+            return _ensure_genre_ids_for_home_cards(out)
         except Exception:
             pass
     return _stub_favorite_genre_recommendations()
@@ -533,11 +752,20 @@ login_manager.init_app(app)
 login_manager.login_view = "login"
 
 
+@login_manager.unauthorized_handler
+def _handle_unauthorized():
+    wants_json = request.path.startswith("/api/") or request.is_json or request.accept_mimetypes.best == "application/json"
+    if wants_json:
+        return jsonify({"error": "login required"}), 401
+    return redirect(url_for("index"))
+
+
 class AppUser(UserMixin):
-    def __init__(self, user_id, email, password_hash):
+    def __init__(self, user_id, email, password_hash, supabase_uid=None):
         self.id = str(user_id)
         self.email = email
         self.password_hash = password_hash
+        self.supabase_uid = supabase_uid
 
     @staticmethod
     def from_db_row(row):
@@ -547,6 +775,7 @@ class AppUser(UserMixin):
             user_id=row["user_id"],
             email=row["email"],
             password_hash=row["password_hash"],
+            supabase_uid=row.get("supabase_uid"),
         )
 
 
@@ -562,6 +791,14 @@ def inject_user():
     return {"current_user": None}
 
 
+@app.context_processor
+def inject_supabase_client():
+    return {
+        "supabase_enabled": supabase_auth_env_ready(),
+        "supabase_client_config": {"url": SUPABASE_URL, "anonKey": SUPABASE_ANON_KEY},
+    }
+
+
 def _read_form_or_json():
     return request.get_json(silent=True) or request.form
 
@@ -574,12 +811,25 @@ def _normalize_email(raw):
     return str(raw or "").strip().lower()
 
 
+def _auth_requires_database_json():
+    """Register/login need PostgreSQL; return a JSON 503 response if it is not configured."""
+    if not DATABASE_URL:
+        return jsonify(
+            {"error": "Database is not configured. Set DATABASE_URL in your .env and restart the app."}
+        ), 503
+    return None
+
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "GET":
         if _wants_json_response():
             return jsonify({"message": "Send POST /register with email and password"}), 200
         return redirect(url_for("index"))
+
+    no_db = _auth_requires_database_json()
+    if no_db is not None:
+        return no_db
 
     data = _read_form_or_json()
     email = _normalize_email(data.get("email"))
@@ -589,15 +839,29 @@ def register():
         return jsonify({"error": "email and password are required"}), 400
     if len(password) < 8:
         return jsonify({"error": "password must be at least 8 characters"}), 400
-    
-    existing = db_get_user_by_email(email)
+
+    try:
+        existing = db_get_user_by_email(email)
+    except Exception:
+        return jsonify(
+            {"error": "Could not connect to the database. Check DATABASE_URL and that PostgreSQL is running."}
+        ), 503
     if existing:
         return jsonify({"error": "email already registered"}), 409
 
     password_hash = generate_password_hash(password)
-    user_id = db_create_user(email, password_hash)
+    try:
+        user_id = db_create_user(email, password_hash)
+    except Exception:
+        return jsonify(
+            {"error": "Could not create your account in the database. Check DATABASE_URL and table setup."}
+        ), 503
     user = AppUser(user_id=user_id, email=email, password_hash=password_hash)
     login_user(user)
+    try:
+        db_touch_email_verified(user_id, True)
+    except Exception:
+        pass
 
     redirect_to = url_for("index")
     if _wants_json_response():
@@ -612,6 +876,10 @@ def login():
             return jsonify({"message": "Send POST /login with email and password"}), 200
         return redirect(url_for("index"))
 
+    no_db = _auth_requires_database_json()
+    if no_db is not None:
+        return no_db
+
     data = _read_form_or_json()
     email = _normalize_email(data.get("email"))
     password = str(data.get("password") or "")
@@ -619,12 +887,21 @@ def login():
     if not email or not password:
         return jsonify({"error": "email and password are required"}), 400
 
-    row = db_get_user_by_email(email)
+    try:
+        row = db_get_user_by_email(email)
+    except Exception:
+        return jsonify(
+            {"error": "Could not connect to the database. Check DATABASE_URL and that PostgreSQL is running."}
+        ), 503
     if not row or not check_password_hash(row["password_hash"], password):
         return jsonify({"error": "invalid credentials"}), 401
 
     user = AppUser.from_db_row(row)
     login_user(user)
+    try:
+        db_touch_email_verified(int(user.id), True)
+    except Exception:
+        pass
     redirect_to = url_for("index")
     if _wants_json_response():
         return jsonify({"ok": True, "redirect_to": redirect_to}), 200
@@ -638,6 +915,165 @@ def logout():
     if _wants_json_response():
         return jsonify({"ok": True}), 200
     return redirect(url_for("index"))
+
+
+@app.route("/auth/supabase", methods=["POST"])
+def auth_supabase_session():
+    if not supabase_auth_env_ready():
+        return jsonify({"error": "Supabase auth is not configured on the server"}), 503
+    if not DATABASE_URL:
+        return jsonify({"error": "database not configured"}), 503
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("access_token") or "").strip()
+    if not token:
+        return jsonify({"error": "access_token required"}), 400
+    try:
+        payload = verify_supabase_access_token(token)
+    except InvalidTokenError:
+        return jsonify({"error": "invalid or expired token"}), 401
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+    sub = str(payload.get("sub") or "").strip()
+    email = str(payload.get("email") or "").strip().lower()
+    if not sub:
+        return jsonify({"error": "token missing subject"}), 401
+    if not email:
+        return jsonify({"error": "token missing email"}), 400
+    try:
+        row = db_ensure_user_for_supabase(email, sub)
+    except psycopg2.errors.UndefinedColumn:
+        return jsonify(
+            {"error": 'Database needs migration: add column "Users".supabase_uid (see schema/add_supabase_uid.sql)'}
+        ), 503
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    user = AppUser.from_db_row(row)
+    login_user(user)
+    email_verified = bool(payload.get("email_verified"))
+    try:
+        db_touch_email_verified(int(user.id), email_verified)
+    except Exception:
+        pass
+    return jsonify(
+        {
+            "ok": True,
+            "user_id": int(user.id),
+            "email": user.email,
+            "email_verified": email_verified,
+            "redirect_to": url_for("index"),
+        }
+    )
+
+
+@app.route("/account")
+def account_page():
+    ratings = []
+    if current_user.is_authenticated and _use_db():
+        try:
+            ratings = db_get_user_ratings_history(int(current_user.id))
+        except Exception:
+            ratings = []
+    return render_template("account.html", ratings=ratings)
+
+
+@app.route("/api/me/ratings", methods=["GET"])
+def api_me_ratings():
+    if not current_user.is_authenticated:
+        return jsonify({"error": "login required"}), 401
+    if not _use_db():
+        return jsonify([])
+    try:
+        rows = db_get_user_ratings_history(int(current_user.id))
+        out = []
+        for r in rows:
+            rd = r.get("rating_date")
+            out.append(
+                {
+                    "movie_id": r["movie_id"],
+                    "title": r["title"],
+                    "release_year": r["release_year"],
+                    "poster_url": _normalize_poster_url(r.get("poster_url")),
+                    "genre_name": r.get("genre_name"),
+                    "rating_value": int(r["rating_value"]) if r.get("rating_value") is not None else None,
+                    "rating_date": rd.isoformat() if rd is not None else None,
+                    "average_rating": float(r["average_rating"]) if r.get("average_rating") is not None else 0.0,
+                }
+            )
+        return jsonify(out)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _tmdb_parallel_search_results(q: str, search_by: str, limit: int = 15) -> list:
+    """TMDB title search for the home page; only runs in title mode (API is movie-by-title)."""
+    if not tmdb_is_configured():
+        return []
+    if (search_by or "").strip().lower() != "title":
+        return []
+    term = (q or "").strip()
+    if len(term) < 2:
+        return []
+    try:
+        data = tmdb_search_movies(term, page=1)
+        return [format_tmdb_search_result(r) for r in (data.get("results") or [])[:limit]]
+    except Exception:
+        return []
+
+
+def _catalog_movie_dedupe_key(m: dict) -> tuple:
+    return ((m.get("title") or "").strip().lower(), m.get("release_year"))
+
+
+def _merge_catalog_with_tmdb(catalog: list, tmdb_rows: list | None) -> list[dict]:
+    """Catalog rows first, then TMDB rows not already represented (title + year)."""
+    unified: list[dict] = []
+    for m in catalog:
+        row = dict(m)
+        row["source"] = "catalog"
+        unified.append(row)
+    keys = {_catalog_movie_dedupe_key(m) for m in catalog}
+    for tm in tmdb_rows or []:
+        k = ((tm.get("title") or "").strip().lower(), tm.get("release_year"))
+        if k in keys:
+            continue
+        row = dict(tm)
+        row["poster_url"] = _normalize_poster_url(row.get("poster_url"))
+        gn = row.get("genre_name")
+        row["genre_names"] = row.get("genre_names") or ([gn] if gn else [])
+        ov = row.get("overview") or ""
+        row["synopsis"] = (ov[:280] + ("…" if len(ov) > 280 else "")) if ov else ""
+        row["source"] = "tmdb"
+        unified.append(row)
+    return unified
+
+
+def _filter_tmdb_for_browse_year(tmdb_rows: list | None, y_from: str, y_to: str) -> list:
+    """Drop TMDB hits outside browse year bounds when bounds are set."""
+    yf_s = (y_from or "").strip()
+    yt_s = (y_to or "").strip()
+    if not yf_s and not yt_s:
+        return list(tmdb_rows or [])
+    try:
+        yf = int(yf_s) if yf_s else None
+    except ValueError:
+        yf = None
+    try:
+        yt = int(yt_s) if yt_s else None
+    except ValueError:
+        yt = None
+    out = []
+    for r in tmdb_rows or []:
+        ry = r.get("release_year")
+        if ry is None:
+            continue
+        if yf is not None and int(ry) < yf:
+            continue
+        if yt is not None and int(ry) > yt:
+            continue
+        out.append(r)
+    return out
 
 
 @app.route("/")
@@ -657,6 +1093,14 @@ def index():
             actor=quick["actor_q"],
         )
 
+    tmdb_parallel_results: list = []
+    if search_attempted and q and tmdb_is_configured():
+        tmdb_parallel_results = _tmdb_parallel_search_results(q, search_by)
+
+    unified_search_results: list[dict] = []
+    if search_attempted:
+        unified_search_results = _merge_catalog_with_tmdb(results, tmdb_parallel_results)
+
     filters = {
         "search_by": search_by,
         "q": q,
@@ -670,7 +1114,7 @@ def index():
     return render_template(
         "index.html",
         results=results,
-        result_count=len(results),
+        result_count=len(unified_search_results) if search_attempted else len(results),
         filters=filters,
         search_query=search_query,
         search_attempted=search_attempted,
@@ -678,6 +1122,7 @@ def index():
         search_by_label=search_by_label,
         genres=get_genres(),
         tmdb_enabled=tmdb_is_configured(),
+        unified_search_results=unified_search_results,
         recommendations=_recommendations_for_home(),
         top_favorite_genres=_user_top_genres_for_home(),
         favorite_genre_recommendations=_favorite_genre_recommendations_for_home(),
@@ -691,6 +1136,8 @@ def all_films_page():
     year_from = request.args.get("year_from", "").strip()
     year_to = request.args.get("year_to", "").strip()
     q = request.args.get("q", "").strip()
+    actor = request.args.get("actor", "").strip()
+    director = request.args.get("director", "").strip()
     media_type = request.args.get("media_type", "").strip()
     language = request.args.get("language", "").strip()
     rating_min = request.args.get("rating_min", "").strip()
@@ -702,6 +1149,8 @@ def all_films_page():
     y_from, y_to = _browse_year_bounds(decade, year_from, year_to)
     results = _db_search_or_stub(
         q=q,
+        actor=actor,
+        director=director,
         genre=genre,
         year_from=y_from,
         year_to=y_to,
@@ -713,12 +1162,27 @@ def all_films_page():
         sort_by=sort_by,
         media_type=media_type,
     )
+
+    tmdb_browse_rows: list = []
+    if (
+        q
+        and len(q.strip()) >= 2
+        and tmdb_is_configured()
+        and (media_type or "").strip().lower() != "show"
+    ):
+        raw_tmdb = _tmdb_parallel_search_results(q, "title")
+        tmdb_browse_rows = _filter_tmdb_for_browse_year(raw_tmdb, y_from, y_to)
+
+    unified_browse_results = _merge_catalog_with_tmdb(results, tmdb_browse_rows)
+
     filters = {
         "genre": genre,
         "decade": decade,
         "year_from": year_from,
         "year_to": year_to,
         "q": q,
+        "actor": actor,
+        "director": director,
         "media_type": media_type,
         "language": language,
         "rating_min": rating_min,
@@ -730,7 +1194,8 @@ def all_films_page():
     return render_template(
         "all_films.html",
         results=results,
-        result_count=len(results),
+        result_count=len(unified_browse_results),
+        unified_browse_results=unified_browse_results,
         filters=filters,
         genres=get_genres(),
         decades=DECADES,
@@ -777,15 +1242,22 @@ def movie_detail(movie_id):
 
 @app.route("/recommendations")
 def recommendations_page():
-    recs = _stub_recommendations()
-    if current_user.is_authenticated and _use_db():
+    recs = []
+    if _use_db():
         try:
-            uid = int(current_user.id)
-            top = db_user_top_genre_ids(uid)
-            rows = db_get_recommendations(uid, limit=48)
-            recs = [_recommendation_from_db_row(r, top) for r in rows]
+            if current_user.is_authenticated:
+                uid = int(current_user.id)
+                top = db_user_top_genre_ids(uid)
+                rows = db_get_recommendations(uid, limit=48)
+                recs = [_recommendation_from_db_row(r, top) for r in rows]
+            else:
+                rows = db_get_spotlight_recommendations(limit=48)
+                recs = [_recommendation_from_db_row(r, []) for r in rows]
         except Exception:
-            recs = _stub_recommendations()
+            recs = []
+    if not recs and not _use_db():
+        recs = _stub_recommendations()
+    recs = _ensure_genre_ids_for_recommendations_cards(recs)
     return render_template("recommendations.html", recommendations=recs, genres=get_genres())
 
 
@@ -831,6 +1303,8 @@ def api_browse():
     year_from = request.args.get("year_from", "").strip()
     year_to = request.args.get("year_to", "").strip()
     q = request.args.get("q", "").strip()
+    actor = request.args.get("actor", "").strip()
+    director = request.args.get("director", "").strip()
     media_type = request.args.get("media_type", "").strip()
     language = request.args.get("language", "").strip()
     rating_min = request.args.get("rating_min", "").strip()
@@ -841,6 +1315,8 @@ def api_browse():
     y_from, y_to = _browse_year_bounds(decade, year_from, year_to)
     results = _db_search_or_stub(
         q=q,
+        actor=actor,
+        director=director,
         genre=genre,
         year_from=y_from,
         year_to=y_to,
@@ -938,12 +1414,15 @@ def api_set_rating():
 
 @app.route("/api/recommendations")
 def api_recommendations():
-    if current_user.is_authenticated and _use_db():
+    if _use_db():
         try:
-            uid = int(current_user.id)
-            top = db_user_top_genre_ids(uid)
-            rows = db_get_recommendations(uid, limit=24)
-            return jsonify([_recommendation_from_db_row(r, top) for r in rows])
+            if current_user.is_authenticated:
+                uid = int(current_user.id)
+                top = db_user_top_genre_ids(uid)
+                rows = db_get_recommendations(uid, limit=24)
+                return jsonify([_recommendation_from_db_row(r, top) for r in rows])
+            rows = db_get_spotlight_recommendations(limit=24)
+            return jsonify([_recommendation_from_db_row(r, []) for r in rows])
         except Exception:
             pass
     return jsonify(_stub_recommendations())
@@ -993,6 +1472,40 @@ def api_movies_from_tmdb():
     try:
         result = import_tmdb_movie(tid, get_genres())
         return jsonify(result)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/movies/like-from-tmdb", methods=["POST"])
+def api_like_from_tmdb():
+    if not current_user.is_authenticated:
+        return jsonify({"error": "login required"}), 401
+    if not _use_db():
+        return jsonify({"error": "database not configured"}), 503
+    if not tmdb_is_configured():
+        return jsonify({"error": "TMDB not configured"}), 503
+    data = request.get_json(silent=True) or {}
+    tmdb_id = data.get("tmdb_id")
+    if tmdb_id is None:
+        return jsonify({"error": "tmdb_id required"}), 400
+    try:
+        tid = int(tmdb_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid tmdb_id"}), 400
+    try:
+        result = import_tmdb_movie(tid, get_genres())
+        movie_id = int(result["movie_id"])
+        db_set_user_rating(int(current_user.id), movie_id, 5)
+        return jsonify(
+            {
+                "ok": True,
+                "movie_id": movie_id,
+                "title": result.get("title"),
+                "already_existed": bool(result.get("already_existed")),
+            }
+        )
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 503
     except Exception as e:
@@ -1243,6 +1756,7 @@ def _stub_favorite_genre_recommendations():
         primary = sorted(overlap, key=lambda gid: genre_rank[gid])[0]
         card["favorite_genre_match"] = primary
         card["favorite_genre_match_name"] = _genre_name(primary)
+        card["genre_id"] = primary
         out.append(card)
 
     out.sort(
@@ -1283,6 +1797,9 @@ def _stub_similar_movies(movie_id):
 
 
 def _stub_movie_card(movie):
+    pu = movie.get("poster_url")
+    if not pu:
+        pu = f"https://picsum.photos/seed/movietrack-{movie['movie_id']}/400/600"
     return {
         "movie_id": movie["movie_id"],
         "title": movie["title"],
@@ -1295,11 +1812,14 @@ def _stub_movie_card(movie):
         "director": movie["director"],
         "synopsis": movie["description"],
         "average_rating": movie["average_rating"],
-        "poster_url": movie["poster_url"],
+        "poster_url": pu,
     }
 
 
 def _stub_movie_detail(movie):
+    pu = movie.get("poster_url")
+    if not pu:
+        pu = f"https://picsum.photos/seed/movietrack-{movie['movie_id']}/400/600"
     return {
         "movie_id": movie["movie_id"],
         "title": movie["title"],
@@ -1308,7 +1828,7 @@ def _stub_movie_detail(movie):
         "runtime": movie["runtime"],
         "language": movie["language"],
         "description": movie["description"],
-        "poster_url": movie["poster_url"],
+        "poster_url": pu,
         "genre_name": movie["genre_name"],
         "genre_names": movie["genre_names"],
     }

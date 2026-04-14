@@ -1,12 +1,4 @@
 (function() {
-  function escapeHtml(text) {
-    return String(text)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
   function initSearchUI(options) {
     options = options || {};
     var form = document.querySelector(options.formSelector || '#search-form');
@@ -23,8 +15,6 @@
     var toggle = resolveSel('toggleSelector', '#advanced-toggle');
     var countEl = resolveSel('countSelector', '#advanced-count');
     var actionsEl = resolveSel('actionsSelector', '#search-actions');
-    var historyEl = resolveSel('historySelector', '#search-history');
-    var saveHistory = options.saveHistory !== false;
     var savePrefs = options.savePrefs !== false;
 
     function countActiveFilters() {
@@ -67,43 +57,13 @@
     form.addEventListener('change', updateUI);
     updateUI();
 
-    if (historyEl && window.MovieDB) {
-      var history = window.MovieDB.getSearchHistory();
-      if (history.length) {
-        var qInput = form.querySelector('input[name="q"]');
-        var html = '<p class="search-history-label">Recent:</p>';
-        history.forEach(function(term) {
-          var safe = escapeHtml(term);
-          html += '<button type="button" class="search-history-chip" data-term="' + safe + '">' + safe + ' <span aria-hidden="true">×</span></button>';
-        });
-        historyEl.innerHTML = html;
-        historyEl.querySelectorAll('.search-history-chip').forEach(function(chip) {
-          chip.addEventListener('click', function(e) {
-            if (e.target.tagName === 'SPAN' || (e.target.closest && e.target.closest('span'))) {
-              window.MovieDB.removeSearchHistory(chip.getAttribute('data-term'));
-              chip.remove();
-              return;
-            }
-            if (qInput) qInput.value = chip.getAttribute('data-term') || '';
-          });
-        });
-      }
-    }
-
     if (window.MovieDB) {
-      if (saveHistory || savePrefs) {
+      if (savePrefs) {
         form.addEventListener('submit', function() {
-          if (saveHistory) {
-            var q = (form.querySelector('input[name="q"]') || {}).value;
-            if (q && q.trim()) window.MovieDB.addSearchHistory(q.trim());
-          }
-
-          if (savePrefs) {
-            var sortBy = form.querySelector('select[name="sort_by"]');
-            var lang = form.querySelector('select[name="language"]');
-            if (sortBy && sortBy.value) window.MovieDB.setPrefs({ sortBy: sortBy.value });
-            if (lang && lang.value) window.MovieDB.setPrefs({ language: lang.value });
-          }
+          var sortBy = form.querySelector('select[name="sort_by"]');
+          var lang = form.querySelector('select[name="language"]');
+          if (sortBy && sortBy.value) window.MovieDB.setPrefs({ sortBy: sortBy.value });
+          if (lang && lang.value) window.MovieDB.setPrefs({ language: lang.value });
         });
       }
 

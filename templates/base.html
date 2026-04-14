@@ -16,8 +16,9 @@
       <button class="nav-toggle" type="button" aria-label="Toggle menu" aria-expanded="false">☰</button>
       <nav class="nav-links" id="nav-links">
         <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">Home</a>
-        <a href="{{ url_for('all_films_page') }}" class="{% if request.endpoint == 'all_films_page' %}active{% endif %}">Browse</a>
+        <a href="{{ url_for('all_films_page') }}" class="{% if request.endpoint == 'all_films_page' %}active{% endif %}">All films</a>
         <a href="{{ url_for('recommendations_page') }}" class="{% if request.endpoint == 'recommendations_page' %}active{% endif %}">Recommendations</a>
+        <a href="{{ url_for('account_page') }}" class="{% if request.endpoint == 'account_page' %}active{% endif %}">My account</a>
         <span class="auth-badge">
           {% if current_user %}
           <span class="auth-email" title="{{ current_user.email }}">{{ current_user.email.split('@')[0] }}</span>
@@ -42,7 +43,13 @@
     <div class="auth-dialog-inner">
       <button type="button" class="auth-dialog-x" id="auth-close" aria-label="Close">&times;</button>
       <h2 class="auth-dialog-title">Account</h2>
-      <p class="auth-dialog-lead">Sign in to save star ratings and sync them with the database.</p>
+      <p class="auth-dialog-lead">
+        {% if supabase_enabled %}
+        Sign in with Supabase to save star ratings in the MovieTrack database.
+        {% else %}
+        Sign in to save star ratings and sync them with the database.
+        {% endif %}
+      </p>
       <form id="auth-login-form" class="auth-form">
         <label class="auth-label">Email</label>
         <input type="email" name="email" required autocomplete="email" class="auth-input" placeholder="you@school.edu" />
@@ -66,6 +73,7 @@
   {% endif %}
   <script src="{{ url_for('static', filename='js/api.js') }}"></script>
   <script src="{{ url_for('static', filename='js/moviedb.js') }}"></script>
+  <script type="application/json" id="app-supabase-config">{{ supabase_client_config | tojson }}</script>
   <script>
     (function() {
       var btn = document.querySelector('.nav-toggle');
@@ -78,7 +86,9 @@
       }
     })();
   </script>
-  {% if not current_user %}
+  {% if supabase_enabled %}
+  <script type="module" src="{{ url_for('static', filename='js/supabase-auth.js') }}"></script>
+  {% elif not current_user %}
   <script>
   (function() {
     var dlg = document.getElementById('auth-dialog');
@@ -97,6 +107,19 @@
     }
     var loginForm = document.getElementById('auth-login-form');
     var regForm = document.getElementById('auth-register-form');
+    function parseAuthResponse(res) {
+      return res.text().then(function(text) {
+        var body = {};
+        if (text) {
+          try {
+            body = JSON.parse(text);
+          } catch (e) {
+            body = { error: text.slice(0, 280) || ('HTTP ' + res.status) };
+          }
+        }
+        return { res: res, body: body };
+      });
+    }
     if (loginForm) {
       loginForm.addEventListener('submit', function(e) {
         e.preventDefault();
@@ -108,12 +131,12 @@
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({ email: fd.get('email'), password: fd.get('password') })
-        }).then(function(res) {
-          return res.json().then(function(body) { return { res: res, body: body }; });
-        }).then(function(x) {
+        }).then(parseAuthResponse).then(function(x) {
           if (x.res.ok) { window.location.reload(); return; }
-          showErr(err, (x.body && x.body.error) || 'Sign in failed.');
-        }).catch(function() { showErr(err, 'Network error.'); });
+          showErr(err, (x.body && x.body.error) || ('Sign in failed (' + x.res.status + ').'));
+        }).catch(function(e) {
+          showErr(err, (e && e.message) || 'Cannot reach the server. Is the app running?');
+        });
       });
     }
     if (regForm) {
@@ -127,12 +150,12 @@
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({ email: fd.get('email'), password: fd.get('password') })
-        }).then(function(res) {
-          return res.json().then(function(body) { return { res: res, body: body }; });
-        }).then(function(x) {
+        }).then(parseAuthResponse).then(function(x) {
           if (x.res.ok) { window.location.reload(); return; }
-          showErr(err, (x.body && x.body.error) || 'Registration failed.');
-        }).catch(function() { showErr(err, 'Network error.'); });
+          showErr(err, (x.body && x.body.error) || ('Registration failed (' + x.res.status + ').'));
+        }).catch(function(e) {
+          showErr(err, (e && e.message) || 'Cannot reach the server. Is the app running?');
+        });
       });
     }
   })();
