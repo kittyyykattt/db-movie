@@ -996,7 +996,7 @@ def api_me_ratings():
                     "release_year": r["release_year"],
                     "poster_url": _normalize_poster_url(r.get("poster_url")),
                     "genre_name": r.get("genre_name"),
-                    "rating_value": int(r["rating_value"]) if r.get("rating_value") is not None else None,
+                    "rating_value": float(r["rating_value"]) if r.get("rating_value") is not None else None,
                     "rating_date": rd.isoformat() if rd is not None else None,
                     "average_rating": float(r["average_rating"]) if r.get("average_rating") is not None else 0.0,
                 }
@@ -1383,7 +1383,7 @@ def api_get_rating():
         try:
             row = db_get_user_rating(int(current_user.id), movie_id)
             if row and row.get("rating_value") is not None:
-                return jsonify({"rating_value": int(row["rating_value"])})
+                return jsonify({"rating_value": float(row["rating_value"])})
         except Exception:
             pass
     return jsonify({"rating_value": None})
@@ -1399,11 +1399,13 @@ def api_set_rating():
     if movie_id is None or rating_value is None:
         return jsonify({"error": "movie_id and rating_value required"}), 400
     try:
-        rating_value = int(rating_value)
+        rating_value = float(rating_value)
     except (TypeError, ValueError):
         return jsonify({"error": "invalid rating_value"}), 400
-    if not (1 <= rating_value <= 5):
-        return jsonify({"error": "rating_value must be 1–5"}), 400
+    if not (0 <= rating_value <= 5):
+        return jsonify({"error": "rating_value must be 0–5"}), 400
+    if (rating_value * 2) % 1 != 0:
+        return jsonify({"error": "rating_value must be in 0.5 increments (0, 0.5, 1, ..., 5)"}), 400
     if _use_db():
         try:
             db_set_user_rating(int(current_user.id), int(movie_id), rating_value)
