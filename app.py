@@ -375,27 +375,19 @@ def db_touch_email_verified(user_id: int, verified: bool):
 
 
 def db_get_recommendations(user_id, limit=12):
+    """Advanced multi-factor recommendation engine with weighted scoring."""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute('''
-                SELECT m.genre_id, AVG(r.rating_value) as avg_genre_rating
-                FROM "Ratings" r
-                JOIN "Movies" m ON r.movie_id = m.movie_id
-                WHERE r.user_id = %s AND m.genre_id IS NOT NULL
-                GROUP BY m.genre_id
-                HAVING AVG(r.rating_value) >= 3.5
-                ORDER BY avg_genre_rating DESC
-                LIMIT 5
-            ''', (user_id,))
-            top_genres = [row["genre_id"] for row in cur.fetchall()]
-
-            if not top_genres:
+            cur.execute('SELECT COUNT(*) as cnt FROM "Ratings" WHERE user_id = %s', (user_id,))
+            if cur.fetchone()["cnt"] == 0:
                 cur.execute('''
                     SELECT 
                         m.movie_id, m.title, m.release_year, m.runtime,
                         m.language, m.poster_url, m.genre_id,
                         g.genre_name,
-                        COALESCE(AVG(r.rating_value), 0) as average_rating
+                        COALESCE(AVG(r.rating_value), 0) as average_rating,
+                        0 as genre_score, 0 as creator_score,
+                        COALESCE(ROUND(AVG(r.rating_value) * 6), 0) as community_score
                     FROM "Movies" m
                     LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
                     LEFT JOIN "Ratings" r ON m.movie_id = r.movie_id
@@ -404,25 +396,69 @@ def db_get_recommendations(user_id, limit=12):
                     LIMIT %s
                 ''', (limit,))
                 return cur.fetchall()
-
-            placeholders = ", ".join(["%s"] * len(top_genres))
-            cur.execute(f'''
+            
+            cur.execute('''
                 SELECT 
                     m.movie_id, m.title, m.release_year, m.runtime,
                     m.language, m.poster_url, m.genre_id,
                     g.genre_name,
-                    COALESCE(AVG(r.rating_value), 0) as average_rating
+                    COALESCE(AVG(r.rating_value), 0) as average_rating,
+                    
+                    CASE 
+                        WHEN m.genre_id IN (
+                            SELECT m2.genre_id
+                            FROM "Ratings" r2
+                            JOIN "Movies" m2 ON r2.movie_id = m2.movie_id
+                            WHERE r2.user_id = %s AND m2.genre_id IS NOT NULL
+                            GROUP BY m2.genre_id
+                            HAVING AVG(r2.rating_value) >= 3.5
+                        ) THEN 40
+                        ELSE 0
+                    END AS genre_score,
+                    
+                    CASE 
+                        WHEN EXISTS (
+                            SELECT 1 
+                            FROM "Credits" c1
+                            JOIN "Credits" c2 ON c1.person_id = c2.person_id
+                            JOIN "Ratings" r3 ON c2.movie_id = r3.movie_id
+                            WHERE c1.movie_id = m.movie_id
+                                AND r3.user_id = %s 
+                                AND r3.rating_value >= 4.5
+                        ) THEN 30
+                        ELSE 0
+                    END AS creator_score,
+                    
+                    COALESCE(ROUND(AVG(r.rating_value) * 6), 0) AS community_score
+
                 FROM "Movies" m
-                LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+                JOIN "Genres" g ON m.genre_id = g.genre_id
                 LEFT JOIN "Ratings" r ON m.movie_id = r.movie_id
-                WHERE m.genre_id IN ({placeholders})
-                AND m.movie_id NOT IN (
+
+                WHERE m.movie_id NOT IN (
                     SELECT movie_id FROM "Ratings" WHERE user_id = %s
                 )
-                GROUP BY m.movie_id, g.genre_name
-                ORDER BY average_rating DESC
+
+                GROUP BY m.movie_id, m.title, m.release_year, m.runtime,
+                         m.language, m.poster_url, m.genre_id, g.genre_name
+
+                ORDER BY 
+                    (CASE WHEN m.genre_id IN (
+                        SELECT m2.genre_id FROM "Ratings" r2 
+                        JOIN "Movies" m2 ON r2.movie_id = m2.movie_id
+                        WHERE r2.user_id = %s AND m2.genre_id IS NOT NULL
+                        GROUP BY m2.genre_id HAVING AVG(r2.rating_value) >= 3.5
+                    ) THEN 40 ELSE 0 END) +
+                    (CASE WHEN EXISTS (
+                        SELECT 1 FROM "Credits" c1
+                        JOIN "Credits" c2 ON c1.person_id = c2.person_id
+                        JOIN "Ratings" r3 ON c2.movie_id = r3.movie_id
+                        WHERE c1.movie_id = m.movie_id AND r3.user_id = %s AND r3.rating_value >= 4.5
+                    ) THEN 30 ELSE 0 END) +
+                    COALESCE(ROUND(AVG(r.rating_value) * 6), 0) DESC
+
                 LIMIT %s
-            ''', (*top_genres, user_id, limit))
+            ''', (user_id, user_id, user_id, user_id, user_id, limit))
             return cur.fetchall()
 
 
