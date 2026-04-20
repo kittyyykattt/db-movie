@@ -290,10 +290,10 @@ def db_count_search_movies(
     inner = "SELECT DISTINCT m.movie_id " + MOVIE_BROWSE_BASE_FROM
     for join in joins:
         inner += join
-    if conditions:
-        inner += " WHERE " + " AND ".join(conditions)
-    if having_conditions:
-        inner += " HAVING " + " AND ".join(having_conditions)
+    # Combine conditions and having_conditions into WHERE (no GROUP BY needed for count)
+    all_conditions = conditions + having_conditions
+    if all_conditions:
+        inner += " WHERE " + " AND ".join(all_conditions)
     count_sql = f"SELECT COUNT(*) AS c FROM ({inner}) AS browse_cnt"
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -335,11 +335,11 @@ def db_search_movies(
     for join in joins:
         full_query += join
 
-    if conditions:
-        full_query += " WHERE " + " AND ".join(conditions)
-
-    if having_conditions:
-        full_query += " HAVING " + " AND ".join(having_conditions)
+    # Combine conditions and having_conditions into WHERE
+    # (rating is pre-aggregated in subquery, so no GROUP BY/HAVING needed)
+    all_conditions = conditions + having_conditions
+    if all_conditions:
+        full_query += " WHERE " + " AND ".join(all_conditions)
 
     order = _movie_browse_order_clause(sort_by)
     full_query += f" ORDER BY {order}"
@@ -1271,13 +1271,10 @@ def index():
             actor=quick["actor_q"],
         )
 
-    tmdb_parallel_results: list = []
-    if search_attempted and q and tmdb_is_configured():
-        tmdb_parallel_results = _tmdb_parallel_search_results(q, search_by)
-
+    # TMDB merge disabled - only show database results
     unified_search_results: list[dict] = []
     if search_attempted:
-        unified_search_results = _merge_catalog_with_tmdb(results, tmdb_parallel_results)
+        unified_search_results = results
 
     filters = {
         "search_by": search_by,
@@ -1374,12 +1371,8 @@ def all_films_page():
     range_start = 0 if total == 0 else (page - 1) * per_page + 1
     range_end = min(page * per_page, total)
 
-    tmdb_browse_rows: list = []
-    if page == 1 and q and len(q.strip()) >= 2 and tmdb_is_configured():
-        raw_tmdb = _tmdb_parallel_search_results(q, "title")
-        tmdb_browse_rows = _filter_tmdb_for_browse_year(raw_tmdb, y_from, y_to)
-
-    unified_browse_results = _merge_catalog_with_tmdb(results, tmdb_browse_rows)
+    # TMDB merge disabled - only show database results
+    unified_browse_results = results
 
     filters = {
         "genre": genre,
@@ -2080,7 +2073,8 @@ def _db_browse_catalog_and_total(
     )
     if _use_db():
         try:
-            total = db_count_search_movies(**search_kw)
+            count_kw = {k: v for k, v in search_kw.items() if k != "sort_by"}
+            total = db_count_search_movies(**count_kw)
             rows = db_search_movies(**search_kw, limit=per_page, offset=offset)
             cards = [_serialize_db_search_row(r) for r in rows]
             mt = (media_type or "").strip().lower()
