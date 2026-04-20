@@ -60,7 +60,12 @@ class UserFlowTests(unittest.TestCase):
     def test_api_browse_json(self):
         r = self.client.get("/api/browse?sort_by=year_desc")
         self.assertEqual(r.status_code, 200)
-        self.assertIsInstance(r.get_json(), list)
+        data = r.get_json()
+        self.assertIsInstance(data, dict)
+        self.assertIn("results", data)
+        self.assertIsInstance(data["results"], list)
+        self.assertIn("total", data)
+        self.assertIn("page", data)
 
     def test_api_recommendations_json(self):
         r = self.client.get("/api/recommendations")

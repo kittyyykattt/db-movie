@@ -53,15 +53,14 @@ const api = {
     if (params.actor) q.set('actor', params.actor);
     if (params.director) q.set('director', params.director);
     if (params.decade) q.set('decade', params.decade);
-    if (params.year_from != null && params.year_from !== '') q.set('year_from', params.year_from);
-    if (params.year_to != null && params.year_to !== '') q.set('year_to', params.year_to);
-    if (params.media_type) q.set('media_type', params.media_type);
     if (params.language) q.set('language', params.language);
     if (params.rating_min != null && params.rating_min !== '') q.set('rating_min', params.rating_min);
     if (params.rating_max != null && params.rating_max !== '') q.set('rating_max', params.rating_max);
     if (params.runtime_min != null && params.runtime_min !== '') q.set('runtime_min', params.runtime_min);
     if (params.runtime_max != null && params.runtime_max !== '') q.set('runtime_max', params.runtime_max);
     if (params.sort_by) q.set('sort_by', params.sort_by);
+    if (params.page != null && params.page !== '') q.set('page', String(params.page));
+    if (params.per_page != null && params.per_page !== '') q.set('per_page', String(params.per_page));
     const qs = q.toString();
     return request(`/browse${qs ? `?${qs}` : ''}`);
   },
@@ -78,6 +77,19 @@ const api = {
     return request('/ratings', {
       method: 'POST',
       body: { movie_id: movieId, rating_value: ratingValue },
+    });
+  },
+
+  deleteRating(movieId) {
+    const qs = new URLSearchParams();
+    qs.set('movie_id', String(movieId));
+    return request(`/ratings?${qs.toString()}`, { method: 'DELETE' });
+  },
+
+  updateProfile(username) {
+    return request('/me', {
+      method: 'PATCH',
+      body: { username },
     });
   },
 

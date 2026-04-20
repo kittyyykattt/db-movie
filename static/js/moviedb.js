@@ -77,21 +77,37 @@
     }
   }
 
+  function isHalfStep01to10(n) {
+    var x = Math.round(n * 2);
+    return Math.abs(n * 2 - x) < 1e-9;
+  }
+
   function getLocalRating(movieId) {
     var id = String(movieId);
     var v = getRatingsMap()[id];
     if (v == null) return null;
     var n = Number(v);
-    return n >= 1 && n <= 5 ? n : null;
+    if (n < 0 || n > 5 || !isHalfStep01to10(n)) return null;
+    return n;
   }
 
   function setLocalRating(movieId, ratingValue) {
     var id = String(movieId);
     var n = Number(ratingValue);
-    if (!id || n < 1 || n > 5) return;
+    if (!id || n < 0 || n > 5 || !isHalfStep01to10(n)) return;
     try {
       var map = getRatingsMap();
       map[id] = n;
+      localStorage.setItem(RATINGS_KEY, JSON.stringify(map));
+    } catch (_) {}
+  }
+
+  function clearLocalRating(movieId) {
+    var id = String(movieId);
+    if (!id) return;
+    try {
+      var map = getRatingsMap();
+      delete map[id];
       localStorage.setItem(RATINGS_KEY, JSON.stringify(map));
     } catch (_) {}
   }
@@ -105,6 +121,7 @@
     getPrefs: getPrefs,
     setPrefs: setPrefs,
     getLocalRating: getLocalRating,
-    setLocalRating: setLocalRating
+    setLocalRating: setLocalRating,
+    clearLocalRating: clearLocalRating
   };
 })();

@@ -48,9 +48,7 @@
     <p class="results-count results-count-empty">Enter a search term to look up a title, actor, or director.</p>
     {% elif unified_search_results %}
     <p class="results-count" id="results-count">Showing {{ result_count }} result{{ 's' if result_count != 1 else '' }}{% if search_query %} for &ldquo;{{ search_query }}&rdquo; <span class="results-by">({{ search_by_label }})</span>{% endif %}</p>
-    <div class="unified-like-host">
-    <p class="tmdb-status tmdb-status-muted search-unified-hint search-like-status" role="status" hidden></p>
-    <div class="movie-grid unified-like-grid">
+    <div class="movie-grid">
       {% for item in unified_search_results %}
       <article
         class="movie-card movie-card-unified-search"
@@ -97,13 +95,9 @@
           {% else %}
           </div>
           {% endif %}
-          <div class="search-card-like-row">
-            <button type="button" class="btn btn-clear search-like-btn">Like</button>
-          </div>
         </div>
       </article>
       {% endfor %}
-    </div>
     </div>
     {% else %}
     <p class="results-count results-count-empty">No matches for &ldquo;{{ filters.q }}&rdquo; <span class="results-by">({{ search_by_label }})</span>.</p>
@@ -119,7 +113,7 @@
 
 <section class="reco-section reveal-section">
   <h2 class="section-title">Recommended for You</h2>
-  <p class="recommendations-intro">Fresh suggestions based on what you watch and like, with personalized match scores.</p>
+  <p class="recommendations-intro">Fresh suggestions based on your ratings and catalog data, with personalized match scores.</p>
   <div class="reco-carousel-shell is-loading" id="reco-carousel-shell">
     <button type="button" class="carousel-arrow carousel-arrow-left" id="reco-prev" aria-label="Scroll recommendations left">‹</button>
     <div class="reco-carousel-viewport" id="reco-carousel-viewport">
@@ -142,7 +136,7 @@
         </div>
         <div class="info card-info-standard">
           <div class="title">{{ m.title }}</div>
-          <div class="meta">{{ m.release_year }}{% if m.genre_name %} · {{ m.genre_name }}{% endif %} · {{ (m.media_type or 'movie')|title }}</div>
+          <div class="meta">{{ m.release_year }}{% if m.genre_name %} · {{ m.genre_name }}{% endif %}</div>
           <span class="view-details">View Details</span>
         </div>
       </a>
@@ -193,7 +187,7 @@
   </div>
   <div class="movie-grid" id="favorite-picks-grid">
     {% if not favorite_genre_recommendations %}
-    <p class="empty-message-sub" style="grid-column: 1 / -1;">No titles here yet. Like a few films or add ratings so we can learn your favorite genres.</p>
+    <p class="empty-message-sub" style="grid-column: 1 / -1;">No titles here yet. Rate a few films so we can learn your favorite genres.</p>
     {% endif %}
     {% for m in favorite_genre_recommendations %}
     <article
@@ -219,7 +213,7 @@
         </div>
         <div class="info card-info-standard">
           <div class="title">{{ m.title }}</div>
-          <div class="meta">{{ m.release_year }} · {{ (m.media_type or 'movie')|title }}{% if card_g %} · {{ card_g }}{% endif %}</div>
+          <div class="meta">{{ m.release_year }}{% if card_g %} · {{ card_g }}{% endif %}</div>
           <span class="view-details">View Details</span>
         </div>
       </a>
@@ -232,9 +226,6 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/search-ui.js') }}"></script>
-{% if search_attempted %}
-<script src="{{ url_for('static', filename='js/search-unified-like.js') }}"></script>
-{% endif %}
 <script>
   (function() {
     var taglinePhrases = ['Drama. Sci-Fi. Romance.', 'Thrillers. Comedies. Classics.', 'Action. Mystery. Adventure.'];

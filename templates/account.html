@@ -22,6 +22,29 @@
   </header>
 
   {% if current_user %}
+  <section class="account-profile-section" aria-labelledby="account-profile-heading">
+    <h2 id="account-profile-heading" class="account-section-title">Profile</h2>
+    <form class="account-profile-form" id="account-profile-form" autocomplete="on">
+      <label class="account-profile-label">
+        <span>Display name</span>
+        <input
+          type="text"
+          name="username"
+          id="account-username"
+          class="account-profile-input"
+          value="{{ current_user.username or '' }}"
+          minlength="2"
+          maxlength="40"
+          required
+          aria-describedby="account-profile-hint"
+        />
+      </label>
+      <p id="account-profile-hint" class="account-profile-hint">Shown in the header instead of your email prefix. 2–40 characters.</p>
+      <button type="submit" class="btn btn-primary btn-sm">Save name</button>
+      <p class="account-profile-status" id="account-profile-status" role="status" hidden></p>
+    </form>
+  </section>
+
   <section class="account-ratings-section" aria-labelledby="account-ratings-heading">
     <h2 id="account-ratings-heading" class="account-section-title">Your ratings</h2>
     {% if ratings %}
@@ -33,11 +56,12 @@
             <th scope="col">Year</th>
             <th scope="col">Your stars</th>
             <th scope="col">Date</th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
           </tr>
         </thead>
         <tbody>
           {% for row in ratings %}
-          <tr>
+          <tr data-movie-id="{{ row.movie_id }}">
             <td>
               <a href="{{ url_for('movie_detail', movie_id=row.movie_id) }}" class="account-film-link">
                 {% if row.poster_url %}
@@ -54,6 +78,9 @@
               <span class="account-star-val" title="{{ row.rating_value }} out of 5">{{ row.rating_value }}/5</span>
             </td>
             <td>{{ row.rating_date.strftime('%Y-%m-%d') if row.rating_date else '—' }}</td>
+            <td>
+              <button type="button" class="btn btn-clear btn-sm account-rating-delete" data-movie-id="{{ row.movie_id }}">Delete</button>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -80,6 +107,55 @@
       btn.addEventListener('click', function() { openNav.click(); });
     }
   })();
+</script>
+{% else %}
+<script>
+(function() {
+  var form = document.getElementById('account-profile-form');
+  var status = document.getElementById('account-profile-status');
+  if (form && window.MovieAPI && window.MovieAPI.updateProfile) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var input = document.getElementById('account-username');
+      var name = input ? String(input.value || '').trim() : '';
+      if (!name) return;
+      if (status) { status.hidden = false; status.textContent = 'Saving…'; }
+      window.MovieAPI.updateProfile(name)
+        .then(function() {
+          if (status) status.textContent = 'Saved.';
+          window.location.reload();
+        })
+        .catch(function(err) {
+          var msg = 'Could not save.';
+          if (err && err.body && err.body.error) msg = String(err.body.error);
+          if (status) { status.hidden = false; status.textContent = msg; }
+        });
+    });
+  }
+  document.querySelectorAll('.account-rating-delete').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var mid = btn.getAttribute('data-movie-id');
+      if (!mid || !window.MovieAPI || !window.MovieAPI.deleteRating) return;
+      if (!window.confirm('Remove this rating?')) return;
+      btn.disabled = true;
+      window.MovieAPI.deleteRating(Number(mid))
+        .then(function() {
+          var tr = btn.closest('tr');
+          if (tr) tr.remove();
+          var tbody = document.querySelector('.account-ratings-table tbody');
+          if (tbody && !tbody.querySelector('tr')) {
+            window.location.reload();
+          }
+        })
+        .catch(function(err) {
+          btn.disabled = false;
+          var msg = 'Could not delete.';
+          if (err && err.body && err.body.error) msg = String(err.body.error);
+          alert(msg);
+        });
+    });
+  });
+})();
 </script>
 {% endif %}
 {% endblock %}

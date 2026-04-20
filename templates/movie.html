@@ -14,9 +14,6 @@
   </div>
   <div class="movie-detail-main">
     <h1>{{ movie.title }}</h1>
-    <div class="movie-detail-actions">
-      <button type="button" class="btn btn-primary movie-like-toggle" id="movie-like-toggle">Mark as Watched & Liked</button>
-    </div>
     <p class="tagline">
       {{ movie.release_year }}
       {% if movie.runtime %} · {{ movie.runtime }} min{% endif %}
@@ -29,14 +26,17 @@
 
     <div class="rating-widget" data-movie-id="{{ movie.movie_id }}">
       <h3>Your rating</h3>
-      <div class="rating-stars" aria-label="Rate 1–5 stars">
-        <button type="button" data-value="1" title="1 star">★</button>
-        <button type="button" data-value="2" title="2 stars">★</button>
-        <button type="button" data-value="3" title="3 stars">★</button>
-        <button type="button" data-value="4" title="4 stars">★</button>
-        <button type="button" data-value="5" title="5 stars">★</button>
+      <div class="rating-stars" role="group" aria-label="Rate from 0 to 5 stars in half-star steps">
+        <button type="button" data-star-index="1" title="0.5 or 1 star">★</button>
+        <button type="button" data-star-index="2" title="1.5 or 2 stars">★</button>
+        <button type="button" data-star-index="3" title="2.5 or 3 stars">★</button>
+        <button type="button" data-star-index="4" title="3.5 or 4 stars">★</button>
+        <button type="button" data-star-index="5" title="4.5 or 5 stars">★</button>
       </div>
-      <div class="rating-value-text">Your rating: 0/5</div>
+      <p class="rating-clear-row">
+        <button type="button" class="btn btn-clear btn-sm rating-clear-btn" id="rating-clear-btn">Clear rating</button>
+      </p>
+      <div class="rating-value-text">Your rating: —</div>
       <p class="rating-local-hint" id="rating-local-hint" hidden></p>
       <div class="saved" style="display: none;">Rating saved.</div>
     </div>
@@ -103,148 +103,26 @@
   </div>
 </section>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/movie-rating.js') }}"></script>
 <script>
 (function() {
-  const widget = document.querySelector('.rating-widget');
-  if (!widget) return;
-  const movieId = widget.dataset.movieId;
-  const stars = widget.querySelectorAll('.rating-stars button');
-  const valueText = widget.querySelector('.rating-value-text');
-  const savedEl = widget.querySelector('.saved');
-  const hintEl = document.getElementById('rating-local-hint');
-  const likeBtn = document.getElementById('movie-like-toggle');
-  let currentValue = 0;
-
-  function updateLikeButton() {
-    if (!likeBtn || !window.MovieDB) return;
-    const liked = window.MovieDB.isLiked(movieId);
-    likeBtn.classList.toggle('is-active', liked);
-    likeBtn.textContent = liked ? 'In Watched & Liked' : 'Mark as Watched & Liked';
-  }
-
-  function setDisplay(value) {
-    currentValue = value;
-    stars.forEach((btn, i) => {
-      btn.classList.toggle('filled', (i + 1) <= value);
-      btn.classList.toggle('active', (i + 1) <= value);
-    });
-    valueText.textContent = 'Your rating: ' + value + '/5';
-  }
-
-  stars.forEach(btn => {
-    btn.addEventListener('click', function() {
-      const v = parseInt(this.dataset.value, 10);
-      if (hintEl) { hintEl.hidden = true; hintEl.textContent = ''; }
-      if (!window.MovieAPI) {
-        if (window.MovieDB) { window.MovieDB.setLocalRating(movieId, v); }
-        setDisplay(v);
-        if (hintEl) {
-          hintEl.textContent = 'Saved on this device only.';
-          hintEl.hidden = false;
-        }
-        return;
-      }
-      window.MovieAPI.setRating(Number(movieId), v)
-        .then(function() {
-          setDisplay(v);
-          if (window.MovieDB) {
-            window.MovieDB.setLikedFromRating(movieId, v);
-            updateLikeButton();
-          }
-          if (savedEl) { savedEl.style.display = 'block'; setTimeout(function() { savedEl.style.display = 'none'; }, 2000); }
-        })
-        .catch(function(err) {
-          if (err && err.status === 401 && window.MovieDB) {
-            window.MovieDB.setLocalRating(movieId, v);
-            setDisplay(v);
-            if (hintEl) {
-              hintEl.textContent = 'Saved on this device. Sign in (header) to store ratings in your account.';
-              hintEl.hidden = false;
-            }
-            return;
-          }
-          valueText.textContent = (err && err.status === 401)
-            ? 'Sign in to save ratings to the database.'
-            : 'Could not save rating.';
-        });
-    });
+  var paletteByGenre = {
+    mystery: 'linear-gradient(135deg, #1e1b4b, #4338ca)',
+    thriller: 'linear-gradient(135deg, #7f1d1d, #991b1b)',
+    'sci-fi': 'linear-gradient(135deg, #1d4ed8, #4338ca)',
+    drama: 'linear-gradient(135deg, #166534, #15803d)',
+    romance: 'linear-gradient(135deg, #b45309, #f59e0b)',
+    crime: 'linear-gradient(135deg, #0f172a, #334155)'
+  };
+  document.querySelectorAll('.poster-wrap').forEach(function(wrap) {
+    var placeholder = wrap.querySelector('.poster-placeholder');
+    if (!placeholder) return;
+    var genre = String(wrap.getAttribute('data-primary-genre') || '').toLowerCase();
+    placeholder.style.background = paletteByGenre[genre] || 'linear-gradient(135deg, #1f2937, #374151)';
   });
-
-  function loadRating() {
-    const local = window.MovieDB ? window.MovieDB.getLocalRating(movieId) : null;
-    if (!window.MovieAPI) {
-      if (local != null) {
-        setDisplay(local);
-        if (hintEl) {
-          hintEl.textContent = 'On this device only — sign in to use your account.';
-          hintEl.hidden = false;
-        }
-      }
-      return;
-    }
-    window.MovieAPI.getRating(Number(movieId))
-      .then(function(r) {
-        const server = r && r.rating_value != null ? Number(r.rating_value) : null;
-        if (server != null && server >= 1 && server <= 5) {
-          setDisplay(server);
-          return;
-        }
-        if (local != null) {
-          setDisplay(local);
-          if (hintEl) {
-            hintEl.textContent = 'Device-only rating — sign in to sync with your account.';
-            hintEl.hidden = false;
-          }
-        }
-      })
-      .catch(function() {
-        if (local != null) {
-          setDisplay(local);
-          if (hintEl) {
-            hintEl.textContent = 'Could not reach server; showing device rating.';
-            hintEl.hidden = false;
-          }
-        }
-      });
-  }
-  loadRating();
-
-  if (likeBtn && window.MovieDB) {
-    updateLikeButton();
-    likeBtn.addEventListener('click', function() {
-      window.MovieDB.toggleLiked(movieId);
-      updateLikeButton();
-    });
-  }
-
-  function applyGenrePalettes() {
-    var paletteByGenre = {
-      mystery: 'linear-gradient(135deg, #1e1b4b, #4338ca)',
-      thriller: 'linear-gradient(135deg, #7f1d1d, #991b1b)',
-      sci-fi: 'linear-gradient(135deg, #1d4ed8, #4338ca)',
-      drama: 'linear-gradient(135deg, #166534, #15803d)',
-      romance: 'linear-gradient(135deg, #b45309, #f59e0b)',
-      crime: 'linear-gradient(135deg, #0f172a, #334155)'
-    };
-    document.querySelectorAll('.poster-wrap').forEach(function(wrap) {
-      var placeholder = wrap.querySelector('.poster-placeholder');
-      if (!placeholder) return;
-      var genre = String(wrap.getAttribute('data-primary-genre') || '').toLowerCase();
-      placeholder.style.background = paletteByGenre[genre] || 'linear-gradient(135deg, #1f2937, #374151)';
-    });
-  }
-
-  stars.forEach((btn) => {
-    btn.addEventListener('mouseenter', function() {
-      const preview = parseInt(this.dataset.value, 10);
-      stars.forEach((s, i) => s.classList.toggle('hovered', i < preview));
-    });
-  });
-  widget.querySelector('.rating-stars').addEventListener('mouseleave', function() {
-    stars.forEach((s) => s.classList.remove('hovered'));
-  });
-
-  applyGenrePalettes();
 })();
 </script>
 {% endblock %}

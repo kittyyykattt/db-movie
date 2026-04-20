@@ -65,7 +65,7 @@ def db_get_user_by_id(user_id):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE user_id = %s',
+                'SELECT user_id, email, password_hash, supabase_uid, username FROM "Users" WHERE user_id = %s',
                 (user_id,),
             )
             return cur.fetchone()
@@ -75,7 +75,7 @@ def db_get_user_by_email(email):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE LOWER(email) = LOWER(%s)',
+                'SELECT user_id, email, password_hash, supabase_uid, username FROM "Users" WHERE LOWER(email) = LOWER(%s)',
                 (email,),
             )
             return cur.fetchone()
@@ -140,17 +140,17 @@ def db_get_credits(movie_id, role=None):
             return cur.fetchall()
 
 
-def db_search_movies(
-    q="", director="", actor="",
-    genre=None, year_from=None, year_to=None,
-    rating_min=None, rating_max=None,
-    language="", runtime_min=None, runtime_max=None,
-    sort_by="", limit=100
-):
-    genre = genre or []
-    params = []
-    
-    base_query = '''
+MOVIE_BROWSE_BASE_FROM = """
+        FROM "Movies" m
+        LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+        LEFT JOIN (
+            SELECT movie_id, AVG(rating_value) as avg_rating
+            FROM "Ratings"
+            GROUP BY movie_id
+        ) avg_r ON m.movie_id = avg_r.movie_id
+"""
+
+MOVIE_BROWSE_SELECT_DISTINCT = """
         SELECT DISTINCT
             m.movie_id, m.title, m.release_year, m.runtime,
             m.language, m.description, m.poster_url, m.genre_id,
@@ -162,15 +162,25 @@ def db_search_movies(
                 WHERE c_d.movie_id = m.movie_id AND c_d.role = 'Director'
                 LIMIT 1
             ) AS director
-        FROM "Movies" m
-        LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
-        LEFT JOIN (
-            SELECT movie_id, AVG(rating_value) as avg_rating
-            FROM "Ratings"
-            GROUP BY movie_id
-        ) avg_r ON m.movie_id = avg_r.movie_id
-    '''
-    
+"""
+
+
+def _movie_browse_filter_parts(
+    q="",
+    director="",
+    actor="",
+    genre=None,
+    year_from=None,
+    year_to=None,
+    rating_min=None,
+    rating_max=None,
+    language="",
+    runtime_min=None,
+    runtime_max=None,
+):
+    """Shared joins, WHERE, HAVING, and params for browse list + count queries."""
+    genre = genre or []
+    params = []
     joins = []
     conditions = []
 
@@ -179,18 +189,22 @@ def db_search_movies(
         params.append(f"%{q}%")
 
     if director:
-        joins.append('''
+        joins.append(
+            """
             JOIN "Credits" c_dir ON m.movie_id = c_dir.movie_id AND c_dir.role = 'Director'
             JOIN "People" p_dir ON c_dir.person_id = p_dir.person_id
-        ''')
+        """
+        )
         conditions.append("p_dir.name ILIKE %s")
         params.append(f"%{director}%")
 
     if actor:
-        joins.append('''
+        joins.append(
+            """
             JOIN "Credits" c_act ON m.movie_id = c_act.movie_id AND c_act.role = 'Actor'
             JOIN "People" p_act ON c_act.person_id = p_act.person_id
-        ''')
+        """
+        )
         conditions.append("p_act.name ILIKE %s")
         params.append(f"%{actor}%")
 
@@ -231,16 +245,10 @@ def db_search_movies(
         having_conditions.append("COALESCE(avg_r.avg_rating, 0) <= %s")
         params.append(float(rating_max))
 
-    full_query = base_query
-    for join in joins:
-        full_query += join
-    
-    if conditions:
-        full_query += " WHERE " + " AND ".join(conditions)
-    
-    if having_conditions:
-        full_query += " HAVING " + " AND ".join(having_conditions)
+    return joins, conditions, having_conditions, params
 
+
+def _movie_browse_order_clause(sort_by):
     sort_map = {
         "year_desc": "m.release_year DESC",
         "year_asc": "m.release_year ASC",
@@ -250,10 +258,95 @@ def db_search_movies(
         "runtime_asc": "m.runtime ASC",
         "title_asc": "m.title ASC",
     }
-    order = sort_map.get(sort_by, "m.release_year DESC")
+    return sort_map.get(sort_by, "m.release_year DESC")
+
+
+def db_count_search_movies(
+    q="",
+    director="",
+    actor="",
+    genre=None,
+    year_from=None,
+    year_to=None,
+    rating_min=None,
+    rating_max=None,
+    language="",
+    runtime_min=None,
+    runtime_max=None,
+):
+    joins, conditions, having_conditions, params = _movie_browse_filter_parts(
+        q=q,
+        director=director,
+        actor=actor,
+        genre=genre,
+        year_from=year_from,
+        year_to=year_to,
+        rating_min=rating_min,
+        rating_max=rating_max,
+        language=language,
+        runtime_min=runtime_min,
+        runtime_max=runtime_max,
+    )
+    inner = "SELECT DISTINCT m.movie_id " + MOVIE_BROWSE_BASE_FROM
+    for join in joins:
+        inner += join
+    if conditions:
+        inner += " WHERE " + " AND ".join(conditions)
+    if having_conditions:
+        inner += " HAVING " + " AND ".join(having_conditions)
+    count_sql = f"SELECT COUNT(*) AS c FROM ({inner}) AS browse_cnt"
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(count_sql, params)
+            row = cur.fetchone()
+            return int(row["c"]) if row and row.get("c") is not None else 0
+
+
+def db_search_movies(
+    q="",
+    director="",
+    actor="",
+    genre=None,
+    year_from=None,
+    year_to=None,
+    rating_min=None,
+    rating_max=None,
+    language="",
+    runtime_min=None,
+    runtime_max=None,
+    sort_by="",
+    limit=100,
+    offset=0,
+):
+    joins, conditions, having_conditions, params = _movie_browse_filter_parts(
+        q=q,
+        director=director,
+        actor=actor,
+        genre=genre,
+        year_from=year_from,
+        year_to=year_to,
+        rating_min=rating_min,
+        rating_max=rating_max,
+        language=language,
+        runtime_min=runtime_min,
+        runtime_max=runtime_max,
+    )
+    full_query = MOVIE_BROWSE_SELECT_DISTINCT + MOVIE_BROWSE_BASE_FROM
+    for join in joins:
+        full_query += join
+
+    if conditions:
+        full_query += " WHERE " + " AND ".join(conditions)
+
+    if having_conditions:
+        full_query += " HAVING " + " AND ".join(having_conditions)
+
+    order = _movie_browse_order_clause(sort_by)
     full_query += f" ORDER BY {order}"
     full_query += f" LIMIT {int(limit)}"
-    
+    if int(offset) > 0:
+        full_query += f" OFFSET {int(offset)}"
+
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(full_query, params)
@@ -284,6 +377,29 @@ def db_set_user_rating(user_id, movie_id, rating_value):
             result = cur.fetchone()
             conn.commit()
             return result
+
+
+def db_delete_user_rating(user_id, movie_id):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'DELETE FROM "Ratings" WHERE user_id = %s AND movie_id = %s',
+                (user_id, movie_id),
+            )
+            deleted = cur.rowcount
+            conn.commit()
+            return deleted
+
+
+def db_update_username(user_id, username):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'UPDATE "Users" SET username = %s WHERE user_id = %s',
+                (username, user_id),
+            )
+            conn.commit()
+            return cur.rowcount
 
 
 def db_get_user_ratings_history(user_id):
@@ -319,14 +435,14 @@ def db_ensure_user_for_supabase(email: str, supabase_uid: str):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE supabase_uid = %s',
+                'SELECT user_id, email, password_hash, supabase_uid, username FROM "Users" WHERE supabase_uid = %s',
                 (supabase_uid,),
             )
             row = cur.fetchone()
             if row:
                 return row
             cur.execute(
-                'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE LOWER(email) = LOWER(%s)',
+                'SELECT user_id, email, password_hash, supabase_uid, username FROM "Users" WHERE LOWER(email) = LOWER(%s)',
                 (email,),
             )
             row = cur.fetchone()
@@ -337,7 +453,7 @@ def db_ensure_user_for_supabase(email: str, supabase_uid: str):
                 )
                 conn.commit()
                 cur.execute(
-                    'SELECT user_id, email, password_hash, supabase_uid FROM "Users" WHERE user_id = %s',
+                    'SELECT user_id, email, password_hash, supabase_uid, username FROM "Users" WHERE user_id = %s',
                     (row["user_id"],),
                 )
                 return cur.fetchone()
@@ -346,7 +462,7 @@ def db_ensure_user_for_supabase(email: str, supabase_uid: str):
                 """
                 INSERT INTO "Users" (email, password_hash, username, join_date, supabase_uid)
                 VALUES (%s, %s, %s, CURRENT_DATE, %s)
-                RETURNING user_id, email, password_hash, supabase_uid
+                RETURNING user_id, email, password_hash, supabase_uid, username
                 """,
                 (email, password_hash, email.split("@")[0], supabase_uid),
             )
@@ -797,11 +913,12 @@ def _handle_unauthorized():
 
 
 class AppUser(UserMixin):
-    def __init__(self, user_id, email, password_hash, supabase_uid=None):
+    def __init__(self, user_id, email, password_hash, supabase_uid=None, username=None):
         self.id = str(user_id)
         self.email = email
         self.password_hash = password_hash
         self.supabase_uid = supabase_uid
+        self.username = username
 
     @staticmethod
     def from_db_row(row):
@@ -812,6 +929,7 @@ class AppUser(UserMixin):
             email=row["email"],
             password_hash=row["password_hash"],
             supabase_uid=row.get("supabase_uid"),
+            username=row.get("username"),
         )
 
 
@@ -892,7 +1010,12 @@ def register():
         return jsonify(
             {"error": "Could not create your account in the database. Check DATABASE_URL and table setup."}
         ), 503
-    user = AppUser(user_id=user_id, email=email, password_hash=password_hash)
+    user = AppUser(
+        user_id=user_id,
+        email=email,
+        password_hash=password_hash,
+        username=email.split("@")[0],
+    )
     login_user(user)
     try:
         db_touch_email_verified(user_id, True)
@@ -1012,6 +1135,25 @@ def account_page():
         except Exception:
             ratings = []
     return render_template("account.html", ratings=ratings)
+
+
+@app.route("/api/me", methods=["PATCH"])
+@login_required
+def api_update_profile():
+    if not _use_db():
+        return jsonify({"error": "database not configured"}), 503
+    data = request.get_json(silent=True) or {}
+    raw = data.get("username")
+    if raw is None:
+        return jsonify({"error": "username required"}), 400
+    username = str(raw).strip()
+    if len(username) < 2 or len(username) > 40:
+        return jsonify({"error": "username must be 2–40 characters"}), 400
+    try:
+        db_update_username(int(current_user.id), username)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True, "username": username})
 
 
 @app.route("/api/me/ratings", methods=["GET"])
@@ -1169,12 +1311,9 @@ def index():
 def all_films_page():
     genre = request.args.getlist("genre")
     decade = request.args.get("decade", "").strip()
-    year_from = request.args.get("year_from", "").strip()
-    year_to = request.args.get("year_to", "").strip()
     q = request.args.get("q", "").strip()
     actor = request.args.get("actor", "").strip()
     director = request.args.get("director", "").strip()
-    media_type = request.args.get("media_type", "").strip()
     language = request.args.get("language", "").strip()
     rating_min = request.args.get("rating_min", "").strip()
     rating_max = request.args.get("rating_max", "").strip()
@@ -1182,8 +1321,21 @@ def all_films_page():
     runtime_max = request.args.get("runtime_max", "").strip()
     sort_by = request.args.get("sort_by", "year_desc").strip()
 
-    y_from, y_to = _browse_year_bounds(decade, year_from, year_to)
-    results = _db_search_or_stub(
+    try:
+        page = int(request.args.get("page", "1") or 1)
+    except ValueError:
+        page = 1
+    page = max(1, page)
+    try:
+        per_page = int(request.args.get("per_page", "") or BROWSE_PER_PAGE_DEFAULT)
+    except ValueError:
+        per_page = BROWSE_PER_PAGE_DEFAULT
+    per_page = max(1, min(100, per_page))
+
+    y_from, y_to = _browse_year_bounds(decade)
+    results, total = _db_browse_catalog_and_total(
+        page=page,
+        per_page=per_page,
         q=q,
         actor=actor,
         director=director,
@@ -1196,16 +1348,34 @@ def all_films_page():
         runtime_min=runtime_min,
         runtime_max=runtime_max,
         sort_by=sort_by,
-        media_type=media_type,
     )
 
+    total_pages = (total + per_page - 1) // per_page if total else 0
+    if total_pages and page > total_pages:
+        page = total_pages
+        results, total = _db_browse_catalog_and_total(
+            page=page,
+            per_page=per_page,
+            q=q,
+            actor=actor,
+            director=director,
+            genre=genre,
+            year_from=y_from,
+            year_to=y_to,
+            rating_min=rating_min,
+            rating_max=rating_max,
+            language=language,
+            runtime_min=runtime_min,
+            runtime_max=runtime_max,
+            sort_by=sort_by,
+        )
+        total_pages = (total + per_page - 1) // per_page if total else 0
+
+    range_start = 0 if total == 0 else (page - 1) * per_page + 1
+    range_end = min(page * per_page, total)
+
     tmdb_browse_rows: list = []
-    if (
-        q
-        and len(q.strip()) >= 2
-        and tmdb_is_configured()
-        and (media_type or "").strip().lower() != "show"
-    ):
+    if page == 1 and q and len(q.strip()) >= 2 and tmdb_is_configured():
         raw_tmdb = _tmdb_parallel_search_results(q, "title")
         tmdb_browse_rows = _filter_tmdb_for_browse_year(raw_tmdb, y_from, y_to)
 
@@ -1214,18 +1384,27 @@ def all_films_page():
     filters = {
         "genre": genre,
         "decade": decade,
-        "year_from": year_from,
-        "year_to": year_to,
         "q": q,
         "actor": actor,
         "director": director,
-        "media_type": media_type,
         "language": language,
         "rating_min": rating_min,
         "rating_max": rating_max,
         "runtime_min": runtime_min,
         "runtime_max": runtime_max,
         "sort_by": sort_by,
+        "page": page,
+        "per_page": per_page,
+    }
+    pagination = {
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": total_pages,
+        "range_start": range_start,
+        "range_end": range_end,
+        "extra_web": max(0, len(unified_browse_results) - len(results)),
+        "page_items": _browse_pagination_items(page, total_pages),
     }
     return render_template(
         "all_films.html",
@@ -1233,10 +1412,10 @@ def all_films_page():
         result_count=len(unified_browse_results),
         unified_browse_results=unified_browse_results,
         filters=filters,
+        pagination=pagination,
         genres=get_genres(),
         decades=DECADES,
         browse_sort_options=BROWSE_SORT_OPTIONS,
-        media_type_options=MEDIA_TYPE_OPTIONS,
         languages=LANGUAGES,
     )
 
@@ -1336,20 +1515,30 @@ def api_search():
 def api_browse():
     genre = request.args.getlist("genre")
     decade = request.args.get("decade", "").strip()
-    year_from = request.args.get("year_from", "").strip()
-    year_to = request.args.get("year_to", "").strip()
     q = request.args.get("q", "").strip()
     actor = request.args.get("actor", "").strip()
     director = request.args.get("director", "").strip()
-    media_type = request.args.get("media_type", "").strip()
     language = request.args.get("language", "").strip()
     rating_min = request.args.get("rating_min", "").strip()
     rating_max = request.args.get("rating_max", "").strip()
     runtime_min = request.args.get("runtime_min", "").strip()
     runtime_max = request.args.get("runtime_max", "").strip()
     sort_by = request.args.get("sort_by", "year_desc").strip()
-    y_from, y_to = _browse_year_bounds(decade, year_from, year_to)
-    results = _db_search_or_stub(
+    try:
+        page = int(request.args.get("page", "1") or 1)
+    except ValueError:
+        page = 1
+    page = max(1, page)
+    try:
+        per_page = int(request.args.get("per_page", "") or BROWSE_PER_PAGE_DEFAULT)
+    except ValueError:
+        per_page = BROWSE_PER_PAGE_DEFAULT
+    per_page = max(1, min(100, per_page))
+
+    y_from, y_to = _browse_year_bounds(decade)
+    results, total = _db_browse_catalog_and_total(
+        page=page,
+        per_page=per_page,
         q=q,
         actor=actor,
         director=director,
@@ -1362,9 +1551,37 @@ def api_browse():
         runtime_min=runtime_min,
         runtime_max=runtime_max,
         sort_by=sort_by,
-        media_type=media_type,
     )
-    return jsonify(results)
+    total_pages = (total + per_page - 1) // per_page if total else 0
+    if total_pages and page > total_pages:
+        page = total_pages
+        results, total = _db_browse_catalog_and_total(
+            page=page,
+            per_page=per_page,
+            q=q,
+            actor=actor,
+            director=director,
+            genre=genre,
+            year_from=y_from,
+            year_to=y_to,
+            rating_min=rating_min,
+            rating_max=rating_max,
+            language=language,
+            runtime_min=runtime_min,
+            runtime_max=runtime_max,
+            sort_by=sort_by,
+        )
+        total_pages = (total + per_page - 1) // per_page if total else 0
+
+    return jsonify(
+        {
+            "results": results,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+        }
+    )
 
 
 @app.route("/api/movies/<int:movie_id>")
@@ -1448,6 +1665,30 @@ def api_set_rating():
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     return jsonify({"ok": True, "movie_id": movie_id, "rating_value": rating_value})
+
+
+@app.route("/api/ratings", methods=["DELETE"])
+def api_delete_rating():
+    if not current_user.is_authenticated:
+        return jsonify({"error": "login required"}), 401
+    data = request.get_json(silent=True) or {}
+    movie_id = request.args.get("movie_id", type=int)
+    if movie_id is None and data.get("movie_id") is not None:
+        try:
+            movie_id = int(data["movie_id"])
+        except (TypeError, ValueError):
+            movie_id = None
+    if not movie_id:
+        return jsonify({"error": "movie_id required"}), 400
+    if not _use_db():
+        return jsonify({"error": "database not configured"}), 503
+    try:
+        deleted = db_delete_user_rating(int(current_user.id), movie_id)
+        if deleted == 0:
+            return jsonify({"error": "no rating found for this film"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True, "movie_id": movie_id})
 
 
 @app.route("/api/recommendations")
@@ -1608,12 +1849,6 @@ BROWSE_SORT_OPTIONS = [
     ("title_asc", "Title A–Z"),
 ]
 
-MEDIA_TYPE_OPTIONS = [
-    ("", "Movies & TV shows"),
-    ("movie", "Movies only"),
-    ("show", "TV shows only"),
-]
-
 DECADES = [
     ("", "Any decade"),
     ("2020s", "2020s"),
@@ -1624,6 +1859,8 @@ DECADES = [
     ("1970s", "1970s"),
     ("1960s", "1960s"),
     ("1950s", "1950s"),
+    ("1940s", "1940s"),
+    ("1930s", "1930s"),
 ]
 
 
@@ -1639,6 +1876,8 @@ def _decade_year_range(decade):
         "1970s": (1970, 1979),
         "1960s": (1960, 1969),
         "1950s": (1950, 1959),
+        "1940s": (1940, 1949),
+        "1930s": (1930, 1939),
     }
     bounds = decades.get(decade)
     if not bounds:
@@ -1646,11 +1885,7 @@ def _decade_year_range(decade):
     return str(bounds[0]), str(bounds[1])
 
 
-def _browse_year_bounds(decade, year_from, year_to):
-    yf = (year_from or "").strip()
-    yt = (year_to or "").strip()
-    if yf or yt:
-        return yf, yt
+def _browse_year_bounds(decade):
     return _decade_year_range(decade)
 
 
@@ -1668,10 +1903,19 @@ def _quick_search_params(search_by, q):
     }
 
 
-def _stub_search(
-    q="", director="", actor="",
-    genre=None, year_from="", year_to="", rating_min="", rating_max="",
-    language="", runtime_min="", runtime_max="", sort_by="",
+def _stub_catalog_search_results(
+    q="",
+    director="",
+    actor="",
+    genre=None,
+    year_from="",
+    year_to="",
+    rating_min="",
+    rating_max="",
+    language="",
+    runtime_min="",
+    runtime_max="",
+    sort_by="",
     media_type="",
 ):
     genre = genre or []
@@ -1739,7 +1983,130 @@ def _stub_search(
     elif sort_by == "runtime_asc":
         items.sort(key=lambda m: m["runtime"])
 
+    return items
+
+
+def _stub_search(
+    q="", director="", actor="",
+    genre=None, year_from="", year_to="", rating_min="", rating_max="",
+    language="", runtime_min="", runtime_max="", sort_by="",
+    media_type="",
+):
+    items = _stub_catalog_search_results(
+        q=q,
+        director=director,
+        actor=actor,
+        genre=genre,
+        year_from=year_from,
+        year_to=year_to,
+        rating_min=rating_min,
+        rating_max=rating_max,
+        language=language,
+        runtime_min=runtime_min,
+        runtime_max=runtime_max,
+        sort_by=sort_by,
+        media_type=media_type,
+    )
     return [_stub_movie_card(m) for m in items]
+
+
+BROWSE_PER_PAGE_DEFAULT = 24
+
+
+def _browse_pagination_items(current_page: int, total_pages: int):
+    """Build page / gap entries for numbered pagination controls."""
+    if total_pages <= 1:
+        return []
+    nums = set()
+    for p in (
+        1,
+        2,
+        total_pages,
+        total_pages - 1,
+        current_page,
+        current_page - 1,
+        current_page + 1,
+        current_page - 2,
+        current_page + 2,
+    ):
+        if 1 <= p <= total_pages:
+            nums.add(p)
+    ordered = sorted(nums)
+    out = []
+    last = None
+    for p in ordered:
+        if last is not None and p - last > 1:
+            out.append({"kind": "gap"})
+        out.append({"kind": "page", "num": p, "current": p == current_page})
+        last = p
+    return out
+
+
+def _db_browse_catalog_and_total(
+    *,
+    page=1,
+    per_page=BROWSE_PER_PAGE_DEFAULT,
+    sort_by="year_desc",
+    q="",
+    actor="",
+    director="",
+    genre=None,
+    year_from=None,
+    year_to=None,
+    rating_min=None,
+    rating_max=None,
+    language="",
+    runtime_min=None,
+    runtime_max=None,
+    media_type="",
+):
+    """Catalog rows for one browse page and total matching rows (for pagination)."""
+    page = max(1, int(page))
+    per_page = max(1, min(100, int(per_page)))
+    offset = (page - 1) * per_page
+    search_kw = dict(
+        q=q,
+        director=director,
+        actor=actor,
+        genre=genre or [],
+        year_from=year_from,
+        year_to=year_to,
+        rating_min=rating_min,
+        rating_max=rating_max,
+        language=language,
+        runtime_min=runtime_min,
+        runtime_max=runtime_max,
+        sort_by=sort_by,
+    )
+    if _use_db():
+        try:
+            total = db_count_search_movies(**search_kw)
+            rows = db_search_movies(**search_kw, limit=per_page, offset=offset)
+            cards = [_serialize_db_search_row(r) for r in rows]
+            mt = (media_type or "").strip().lower()
+            if mt in ("movie", "show"):
+                cards = [c for c in cards if c.get("media_type") == mt]
+            return cards, total
+        except Exception:
+            pass
+    items = _stub_catalog_search_results(
+        q=q,
+        director=director,
+        actor=actor,
+        genre=genre,
+        year_from=year_from or "",
+        year_to=year_to or "",
+        rating_min=rating_min or "",
+        rating_max=rating_max or "",
+        language=language or "",
+        runtime_min=runtime_min or "",
+        runtime_max=runtime_max or "",
+        sort_by=sort_by,
+        media_type=media_type,
+    )
+    total = len(items)
+    cards = [_stub_movie_card(m) for m in items[offset : offset + per_page]]
+    return cards, total
 
 
 def _stub_movie(movie_id):

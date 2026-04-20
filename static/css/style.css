@@ -821,6 +821,83 @@ main {
   margin-top: 1.75rem;
 }
 
+.browse-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem 1rem;
+  margin-top: 1.75rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--border);
+}
+
+.browse-page-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.browse-page-btn {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  text-decoration: none;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+a.browse-page-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.browse-page-btn.is-disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.browse-page-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.35rem;
+  height: 2.35rem;
+  padding: 0 0.45rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--muted);
+  border: 1px solid transparent;
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
+}
+
+a.browse-page-num:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border);
+}
+
+.browse-page-num.is-current {
+  color: #fff;
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+}
+
+.browse-page-gap {
+  color: var(--muted);
+  padding: 0 0.15rem;
+  user-select: none;
+}
+
 .search-unified-block {
   margin-top: 1.75rem;
 }
@@ -1635,8 +1712,26 @@ main {
   color: #fbbf24;
 }
 
+.rating-stars button.is-half {
+  background: linear-gradient(90deg, #fbbf24 50%, #697286 50%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 .rating-stars button.hovered {
   color: #fbbf24;
+}
+
+.rating-stars button.is-half.hovered {
+  background: linear-gradient(90deg, #fcd34d 50%, #697286 50%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.rating-clear-row {
+  margin: 0.35rem 0 0.15rem;
 }
 
 .rating-stars button:hover {
@@ -2318,6 +2413,61 @@ main {
 }
 
 /* Account / dashboard */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.account-profile-section {
+  margin-bottom: 2rem;
+}
+
+.account-profile-form {
+  max-width: 28rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.account-profile-label span {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.account-profile-input {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.account-profile-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.account-profile-status {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--success);
+}
+
 .account-page {
   padding: 0.5rem 0 2rem;
   max-width: 52rem;
