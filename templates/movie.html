@@ -24,6 +24,13 @@
     <div class="description">{{ movie.description }}</div>
     {% endif %}
 
+    {% if movie.average_rating is defined and movie.average_rating and movie.average_rating > 0 %}
+    <p class="movie-community-rating">
+      <span class="movie-community-rating-icon" aria-hidden="true">⭐</span>
+      <span class="movie-community-rating-text">Community rating: <strong>{{ "%.1f"|format(movie.average_rating) }}/5</strong></span>
+    </p>
+    {% endif %}
+
     <div class="rating-widget" data-movie-id="{{ movie.movie_id }}">
       <h3>Your rating</h3>
       <div class="rating-stars" role="group" aria-label="Rate from 0 to 5 stars in half-star steps">
@@ -75,34 +82,6 @@
     {% endif %}
   </div>
 </article>
-
-{% if similar_movies %}
-<section class="similar-movies">
-  <hr class="section-divider movie-detail-divider" />
-  <h2 class="section-title">Similar Movies</h2>
-  <div class="similar-movies-row">
-    {% for m in similar_movies %}
-    <article class="movie-card similar-card" data-movie-id="{{ m.movie_id }}">
-      <a href="{{ url_for('movie_detail', movie_id=m.movie_id) }}">
-        <div class="poster-wrap" data-primary-genre="{{ m.genre_name or '' }}">
-          {% if m.poster_url %}
-          <img src="{{ m.poster_url }}" alt="" loading="lazy" />
-          {% else %}
-          <div class="poster-placeholder">
-            <span class="poster-icon" aria-hidden="true">🎬</span>
-          </div>
-          {% endif %}
-        </div>
-        <div class="info">
-          <div class="title">{{ m.title }}</div>
-          <div class="meta">{{ m.release_year }}{% if m.genre_name %} · {{ m.genre_name }}{% endif %}</div>
-        </div>
-      </a>
-    </article>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}

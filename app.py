@@ -601,43 +601,6 @@ def db_get_spotlight_recommendations(limit=12):
             return cur.fetchall()
 
 
-def db_similar_movies(movie_id, limit=10):
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute('SELECT genre_id FROM "Movies" WHERE movie_id = %s', (movie_id,))
-            row = cur.fetchone()
-            if not row or row.get("genre_id") is None:
-                return []
-            gid = row["genre_id"]
-            cur.execute(
-                """
-                SELECT
-                    m.movie_id, m.title, m.release_year, m.runtime,
-                    m.language, m.description, m.poster_url, m.genre_id,
-                    g.genre_name,
-                    COALESCE(avg_r.avg_rating, 0) AS average_rating,
-                    (
-                        SELECT p.name FROM "Credits" c_d
-                        JOIN "People" p ON c_d.person_id = p.person_id
-                        WHERE c_d.movie_id = m.movie_id AND c_d.role = 'Director'
-                        LIMIT 1
-                    ) AS director
-                FROM "Movies" m
-                LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
-                LEFT JOIN (
-                    SELECT movie_id, AVG(rating_value) AS avg_rating
-                    FROM "Ratings"
-                    GROUP BY movie_id
-                ) avg_r ON m.movie_id = avg_r.movie_id
-                WHERE m.genre_id = %s AND m.movie_id != %s
-                ORDER BY average_rating DESC NULLS LAST, m.release_year DESC NULLS LAST
-                LIMIT %s
-                """,
-                (gid, movie_id, limit),
-            )
-            return cur.fetchall()
-
-
 def db_user_top_genre_ids(user_id, limit=4):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -657,36 +620,51 @@ def db_user_top_genre_ids(user_id, limit=4):
 
 
 def db_favorite_genre_movies(genre_ids, limit=24):
+    """Top titles per favorite genre by community average (highest first within each genre)."""
     if not genre_ids:
         return []
-    placeholders = ", ".join(["%s"] * len(genre_ids))
+    n = len(genre_ids)
+    per_genre = max(1, (limit + n - 1) // n)
+    placeholders = ", ".join(["%s"] * n)
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
+                WITH ranked AS (
+                    SELECT
+                        m.movie_id, m.title, m.release_year, m.runtime,
+                        m.language, m.description, m.poster_url, m.genre_id,
+                        g.genre_name,
+                        COALESCE(avg_r.avg_rating, 0) AS average_rating,
+                        (
+                            SELECT p.name FROM "Credits" c_d
+                            JOIN "People" p ON c_d.person_id = p.person_id
+                            WHERE c_d.movie_id = m.movie_id AND c_d.role = 'Director'
+                            LIMIT 1
+                        ) AS director,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY m.genre_id
+                            ORDER BY COALESCE(avg_r.avg_rating, 0) DESC NULLS LAST,
+                                     m.release_year DESC NULLS LAST
+                        ) AS rn
+                    FROM "Movies" m
+                    LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
+                    LEFT JOIN (
+                        SELECT movie_id, AVG(rating_value) AS avg_rating
+                        FROM "Ratings"
+                        GROUP BY movie_id
+                    ) avg_r ON m.movie_id = avg_r.movie_id
+                    WHERE m.genre_id IN ({placeholders})
+                )
                 SELECT
-                    m.movie_id, m.title, m.release_year, m.runtime,
-                    m.language, m.description, m.poster_url, m.genre_id,
-                    g.genre_name,
-                    COALESCE(avg_r.avg_rating, 0) AS average_rating,
-                    (
-                        SELECT p.name FROM "Credits" c_d
-                        JOIN "People" p ON c_d.person_id = p.person_id
-                        WHERE c_d.movie_id = m.movie_id AND c_d.role = 'Director'
-                        LIMIT 1
-                    ) AS director
-                FROM "Movies" m
-                LEFT JOIN "Genres" g ON m.genre_id = g.genre_id
-                LEFT JOIN (
-                    SELECT movie_id, AVG(rating_value) AS avg_rating
-                    FROM "Ratings"
-                    GROUP BY movie_id
-                ) avg_r ON m.movie_id = avg_r.movie_id
-                WHERE m.genre_id IN ({placeholders})
-                ORDER BY average_rating DESC NULLS LAST, m.release_year DESC NULLS LAST
-                LIMIT %s
+                    movie_id, title, release_year, runtime,
+                    language, description, poster_url, genre_id,
+                    genre_name, average_rating, director
+                FROM ranked
+                WHERE rn <= %s
+                ORDER BY genre_id, rn
                 """,
-                (*genre_ids, limit),
+                (*genre_ids, per_genre),
             )
             return cur.fetchall()
 
@@ -876,6 +854,14 @@ def _favorite_genre_recommendations_for_home():
             if not gids:
                 raise ValueError("no genres")
             rows = db_favorite_genre_movies(gids, limit=24)
+            genre_order = {gid: idx for idx, gid in enumerate(gids)}
+            rows = sorted(
+                rows,
+                key=lambda row: (
+                    genre_order.get(row.get("genre_id"), 99),
+                    -float(row.get("average_rating") or 0),
+                ),
+            )
             by_gid = {g["genre_id"]: g["genre_name"] for g in get_genres()}
             genre_rank = {gid: idx for idx, gid in enumerate(gids)}
             out = []
@@ -1422,15 +1408,13 @@ def search_page():
 @app.route("/movie/<int:movie_id>")
 def movie_detail(movie_id):
     movie = None
-    cast, crew, similar_movies = [], [], []
+    cast, crew = [], []
     if _use_db():
         try:
             movie = _movie_detail_from_db(movie_id)
             if movie:
                 cast = db_get_credits(movie_id, role="Actor")
                 crew = db_get_credits(movie_id, role="Director")
-                sim_rows = db_similar_movies(movie_id)
-                similar_movies = [_serialize_db_search_row(r) for r in sim_rows]
         except Exception:
             movie = None
     if not movie:
@@ -1439,13 +1423,11 @@ def movie_detail(movie_id):
             return "Movie not found", 404
         cast = _stub_credits(movie_id, role="cast")
         crew = _stub_credits(movie_id, role="crew")
-        similar_movies = _stub_similar_movies(movie_id)
     return render_template(
         "movie.html",
         movie=movie,
         cast=cast,
         crew=crew,
-        similar_movies=similar_movies,
     )
 
 
@@ -2179,23 +2161,6 @@ def _stub_favorite_genre_recommendations():
     return out
 
 
-def _stub_similar_movies(movie_id):
-    base = _movie_by_id(movie_id)
-    if not base:
-        return []
-    base_genres = set(base["genre_ids"])
-    candidates = []
-    for movie in _stub_catalog():
-        if movie["movie_id"] == movie_id:
-            continue
-        overlap = len(base_genres.intersection(set(movie["genre_ids"])))
-        if overlap == 0:
-            continue
-        candidates.append((overlap, movie["average_rating"], movie["release_year"], movie))
-    candidates.sort(key=lambda row: (row[0], row[1], row[2]), reverse=True)
-    return [_stub_movie_card(row[3]) for row in candidates[:10]]
-
-
 def _stub_movie_card(movie):
     pu = movie.get("poster_url")
     if not pu:
@@ -2220,6 +2185,13 @@ def _stub_movie_detail(movie):
     pu = movie.get("poster_url")
     if not pu:
         pu = f"https://picsum.photos/seed/movietrack-{movie['movie_id']}/400/600"
+    try:
+        ar = float(movie.get("average_rating") or 0)
+    except (TypeError, ValueError):
+        ar = 0.0
+    if ar > 5:
+        ar = ar / 2.0
+    ar = min(5.0, max(0.0, ar))
     return {
         "movie_id": movie["movie_id"],
         "title": movie["title"],
@@ -2231,6 +2203,7 @@ def _stub_movie_detail(movie):
         "poster_url": pu,
         "genre_name": movie["genre_name"],
         "genre_names": movie["genre_names"],
+        "average_rating": ar,
     }
 
 

@@ -1685,6 +1685,25 @@ a.browse-page-num:hover {
   grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
 }
 
+.movie-community-rating {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.65rem 0 0.35rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.movie-community-rating-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.movie-community-rating-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .rating-widget {
   border: 1px solid var(--border);
   background: var(--surface);
@@ -1786,20 +1805,6 @@ a.browse-page-num:hover {
 .person-role {
   font-size: 0.71rem;
   color: var(--muted);
-}
-
-.similar-movies {
-  margin-top: 0.4rem;
-}
-
-.similar-movies-row {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(180px, 220px);
-  gap: 0.85rem;
-  overflow-x: auto;
-  padding: 0.3rem 0.12rem 0.4rem;
-  scrollbar-width: thin;
 }
 
 .movie-detail-poster-wrap {
@@ -2573,6 +2578,41 @@ main {
 .account-star-val {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+.account-rating-stars-cell {
+  vertical-align: top;
+  min-width: 10rem;
+}
+
+.account-rating-edit-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.account-rating-select {
+  min-width: 5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.account-rating-actions-cell {
+  white-space: nowrap;
+}
+
+.account-rating-actions-cell .btn {
+  margin-right: 0.35rem;
+}
+
+.account-rating-actions-cell .btn:last-child {
+  margin-right: 0;
 }
 
 .account-empty {

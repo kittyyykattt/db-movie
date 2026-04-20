@@ -56,7 +56,7 @@
             <th scope="col">Year</th>
             <th scope="col">Your stars</th>
             <th scope="col">Date</th>
-            <th scope="col"><span class="visually-hidden">Actions</span></th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -74,11 +74,18 @@
               {% endif %}
             </td>
             <td>{{ row.release_year or '—' }}</td>
-            <td>
-              <span class="account-star-val" title="{{ row.rating_value }} out of 5">{{ row.rating_value }}/5</span>
+            <td class="account-rating-stars-cell">
+              <span class="account-star-val account-rating-display" title="{{ row.rating_value }} out of 5">{{ row.rating_value }}/5</span>
+              <div class="account-rating-edit-panel" hidden>
+                <label class="account-rating-edit-label visually-hidden" for="account-rating-select-{{ row.movie_id }}">New rating</label>
+                <select id="account-rating-select-{{ row.movie_id }}" class="account-rating-select" data-movie-id="{{ row.movie_id }}"></select>
+                <button type="button" class="btn btn-primary btn-sm account-rating-save">Save</button>
+                <button type="button" class="btn btn-clear btn-sm account-rating-cancel">Cancel</button>
+              </div>
             </td>
             <td>{{ row.rating_date.strftime('%Y-%m-%d') if row.rating_date else '—' }}</td>
-            <td>
+            <td class="account-rating-actions-cell">
+              <button type="button" class="btn btn-clear btn-sm account-rating-edit" data-movie-id="{{ row.movie_id }}">Edit</button>
               <button type="button" class="btn btn-clear btn-sm account-rating-delete" data-movie-id="{{ row.movie_id }}">Delete</button>
             </td>
           </tr>
@@ -132,6 +139,109 @@
         });
     });
   }
+  function fillRatingSelect(sel) {
+    if (!sel || sel.options.length) return;
+    for (var i = 0; i <= 10; i++) {
+      var v = i / 2;
+      var opt = document.createElement('option');
+      opt.value = String(v);
+      opt.textContent = v === Math.floor(v) ? String(v) : v.toFixed(1);
+      opt.textContent += '/5';
+      sel.appendChild(opt);
+    }
+  }
+
+  function setSelectValue(sel, val) {
+    if (!sel) return;
+    var n = Number(val);
+    var best = null;
+    var bestDiff = Infinity;
+    for (var i = 0; i < sel.options.length; i++) {
+      var o = Number(sel.options[i].value);
+      var d = Math.abs(o - n);
+      if (d < bestDiff) {
+        bestDiff = d;
+        best = sel.options[i].value;
+      }
+    }
+    if (best != null) sel.value = best;
+  }
+
+  document.querySelectorAll('.account-rating-select').forEach(fillRatingSelect);
+
+  function closeAllRatingEditors() {
+    document.querySelectorAll('.account-ratings-table tbody tr').forEach(function(row) {
+      var panel = row.querySelector('.account-rating-edit-panel');
+      var display = row.querySelector('.account-rating-display');
+      var editBtn = row.querySelector('.account-rating-edit');
+      if (panel) panel.hidden = true;
+      if (display) display.hidden = false;
+      if (editBtn) editBtn.disabled = false;
+    });
+  }
+
+  document.querySelectorAll('.account-rating-edit').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tr = btn.closest('tr');
+      if (!tr) return;
+      var display = tr.querySelector('.account-rating-display');
+      var panel = tr.querySelector('.account-rating-edit-panel');
+      var sel = tr.querySelector('.account-rating-select');
+      if (!panel || !sel || !display) return;
+      closeAllRatingEditors();
+      var current = display.textContent.replace(/\/5\s*$/, '').trim();
+      setSelectValue(sel, current);
+      panel.hidden = false;
+      display.hidden = true;
+      btn.disabled = true;
+    });
+  });
+
+  document.querySelectorAll('.account-rating-cancel').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tr = btn.closest('tr');
+      if (!tr) return;
+      var panel = tr.querySelector('.account-rating-edit-panel');
+      var display = tr.querySelector('.account-rating-display');
+      var editBtn = tr.querySelector('.account-rating-edit');
+      if (panel) panel.hidden = true;
+      if (display) display.hidden = false;
+      if (editBtn) editBtn.disabled = false;
+    });
+  });
+
+  document.querySelectorAll('.account-rating-save').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tr = btn.closest('tr');
+      if (!tr || !window.MovieAPI || !window.MovieAPI.setRating) return;
+      var sel = tr.querySelector('.account-rating-select');
+      var mid = sel && sel.getAttribute('data-movie-id');
+      if (!mid || !sel) return;
+      var val = parseFloat(sel.value);
+      if (Number.isNaN(val)) return;
+      btn.disabled = true;
+      window.MovieAPI.setRating(Number(mid), val)
+        .then(function() {
+          var display = tr.querySelector('.account-rating-display');
+          var panel = tr.querySelector('.account-rating-edit-panel');
+          var editBtn = tr.querySelector('.account-rating-edit');
+          var label = val === Math.floor(val) ? String(val) : val.toFixed(1);
+          if (display) {
+            display.textContent = label + '/5';
+            display.hidden = false;
+          }
+          if (panel) panel.hidden = true;
+          if (editBtn) editBtn.disabled = false;
+        })
+        .catch(function(err) {
+          btn.disabled = false;
+          var msg = 'Could not update rating.';
+          if (err && err.body && err.body.error) msg = String(err.body.error);
+          alert(msg);
+        });
+    });
+  });
+
   document.querySelectorAll('.account-rating-delete').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var mid = btn.getAttribute('data-movie-id');

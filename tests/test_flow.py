@@ -34,6 +34,7 @@ class UserFlowTests(unittest.TestCase):
         r = self.client.get("/movie/1")
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"movie-detail", r.data)
+        self.assertNotIn(b"Similar Movies", r.data)
 
     def test_movie_detail_missing(self):
         r = self.client.get("/movie/999999")
