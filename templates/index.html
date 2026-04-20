@@ -113,7 +113,7 @@
 
 <section class="reco-section reveal-section">
   <h2 class="section-title">Recommended for You</h2>
-  <p class="recommendations-intro">Fresh suggestions based on your ratings and catalog data, with personalized match scores.</p>
+  <p class="recommendations-intro">Fresh suggestions based on your ratings and catalog data.</p>
   <div class="reco-carousel-shell is-loading" id="reco-carousel-shell">
     <button type="button" class="carousel-arrow carousel-arrow-left" id="reco-prev" aria-label="Scroll recommendations left">‹</button>
     <div class="reco-carousel-viewport" id="reco-carousel-viewport">
@@ -140,20 +140,6 @@
           <span class="view-details">View Details</span>
         </div>
       </a>
-      {% if m.match_percentage %}
-      <div
-        class="match-ring"
-        role="img"
-        aria-label="{{ m.match_percentage }} percent match"
-        style="--match: {{ m.match_percentage }};"
-      >
-        <svg viewBox="0 0 42 42" aria-hidden="true">
-          <circle class="ring-bg" cx="21" cy="21" r="16"></circle>
-          <circle class="ring-fg" cx="21" cy="21" r="16"></circle>
-        </svg>
-        <span>{{ m.match_percentage }}%</span>
-      </div>
-      {% endif %}
     </article>
     {% endfor %}
       </div>

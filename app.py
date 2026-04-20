@@ -721,6 +721,7 @@ def _serialize_db_search_row(row):
     if not r.get("director"):
         r["director"] = ""
     r["poster_url"] = _normalize_poster_url(r.get("poster_url"))
+    r["source"] = "catalog"
     return r
 
 
