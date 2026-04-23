@@ -30,7 +30,7 @@ async function syncFlaskSession(accessToken) {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(body.error || res.statusText || 'Session sync failed');
+    const err = new Error(body.error || res.statusText || 'Could not finish signing in. Try again.');
     err.body = body;
     throw err;
   }
@@ -76,14 +76,14 @@ if (config.url && config.anonKey) {
         return;
       }
       if (!data.session) {
-        showErr(errEl, 'No session returned.');
+        showErr(errEl, 'Could not finish signing in. Try again.');
         return;
       }
       try {
         const body = await syncFlaskSession(data.session.access_token);
         window.location.href = body.redirect_to || '/';
       } catch (err) {
-        showErr(errEl, err.message || 'Could not start app session.');
+        showErr(errEl, err.message || 'Could not finish signing in. Try again.');
       }
     });
   }
@@ -107,12 +107,12 @@ if (config.url && config.anonKey) {
           const body = await syncFlaskSession(data.session.access_token);
           window.location.href = body.redirect_to || '/';
         } catch (err) {
-          showErr(errEl, err.message || 'Could not start app session.');
+          showErr(errEl, err.message || 'Could not finish signing in. Try again.');
         }
       } else {
         showErr(
           errEl,
-          'If email confirmation is enabled in Supabase, check your inbox—then sign in here.'
+          'If you need to confirm your email, check your inbox—then sign in here.'
         );
       }
     });

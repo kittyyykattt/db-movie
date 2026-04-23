@@ -43,13 +43,7 @@
     <div class="auth-dialog-inner">
       <button type="button" class="auth-dialog-x" id="auth-close" aria-label="Close">&times;</button>
       <h2 class="auth-dialog-title">Account</h2>
-      <p class="auth-dialog-lead">
-        {% if supabase_enabled %}
-        Sign in with Supabase to save star ratings in the MovieTrack database.
-        {% else %}
-        Sign in to save star ratings and sync them with the database.
-        {% endif %}
-      </p>
+      <p class="auth-dialog-lead">Sign in to save your star ratings to your account.</p>
       <form id="auth-login-form" class="auth-form">
         <label class="auth-label">Email</label>
         <input type="email" name="email" required autocomplete="email" class="auth-input" placeholder="you@school.edu" />
@@ -135,7 +129,7 @@
           if (x.res.ok) { window.location.reload(); return; }
           showErr(err, (x.body && x.body.error) || ('Sign in failed (' + x.res.status + ').'));
         }).catch(function(e) {
-          showErr(err, (e && e.message) || 'Cannot reach the server. Is the app running?');
+          showErr(err, (e && e.message) || 'Connection problem. Try again.');
         });
       });
     }
@@ -154,7 +148,7 @@
           if (x.res.ok) { window.location.reload(); return; }
           showErr(err, (x.body && x.body.error) || ('Registration failed (' + x.res.status + ').'));
         }).catch(function(e) {
-          showErr(err, (e && e.message) || 'Cannot reach the server. Is the app running?');
+          showErr(err, (e && e.message) || 'Connection problem. Try again.');
         });
       });
     }

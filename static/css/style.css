@@ -2581,16 +2581,18 @@ main {
 }
 
 .account-rating-stars-cell {
-  vertical-align: top;
-  min-width: 10rem;
+  vertical-align: middle;
+  min-width: 8rem;
 }
 
-.account-rating-edit-panel {
+/* Only show flex layout when open; a bare `display: flex` on .account-rating-edit-panel
+   overrides the [hidden] attribute in the cascade and keeps the editor visible. */
+.account-rating-edit-panel:not([hidden]) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
-  margin-top: 0.25rem;
+  margin-top: 0.15rem;
 }
 
 .account-rating-select {
@@ -2605,13 +2607,21 @@ main {
 
 .account-rating-actions-cell {
   white-space: nowrap;
+  text-align: right;
+  width: 1%;
 }
 
-.account-rating-actions-cell .btn {
-  margin-right: 0.35rem;
+.account-rating-actions-view:not([hidden]),
+.account-rating-actions-edit:not([hidden]) {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
 }
 
-.account-rating-actions-cell .btn:last-child {
+.account-rating-actions-view .btn,
+.account-rating-actions-edit .btn {
   margin-right: 0;
 }
 

@@ -44,7 +44,7 @@ def _supabase_jwt_issuer():
 
 def verify_supabase_access_token(token: str) -> dict:
     if not SUPABASE_JWT_SECRET:
-        raise RuntimeError("SUPABASE_JWT_SECRET is not set")
+        raise RuntimeError("Sign-in is not fully configured on this site.")
     issuer = _supabase_jwt_issuer()
     common = {"algorithms": ["HS256"], "audience": "authenticated"}
     try:
@@ -431,7 +431,7 @@ def db_ensure_user_for_supabase(email: str, supabase_uid: str):
     email = str(email or "").strip().lower()
     supabase_uid = str(supabase_uid or "").strip()
     if not email or not supabase_uid:
-        raise ValueError("email and Supabase user id are required")
+        raise ValueError("Invalid sign-in data")
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -956,7 +956,7 @@ def _auth_requires_database_json():
     """Register/login need PostgreSQL; return a JSON 503 response if it is not configured."""
     if not DATABASE_URL:
         return jsonify(
-            {"error": "Database is not configured. Set DATABASE_URL in your .env and restart the app."}
+            {"error": "Sign-in is not available on this site right now. Try again later."}
         ), 503
     return None
 
@@ -985,7 +985,7 @@ def register():
         existing = db_get_user_by_email(email)
     except Exception:
         return jsonify(
-            {"error": "Could not connect to the database. Check DATABASE_URL and that PostgreSQL is running."}
+            {"error": "Could not connect. Try again in a moment."}
         ), 503
     if existing:
         return jsonify({"error": "email already registered"}), 409
@@ -995,7 +995,7 @@ def register():
         user_id = db_create_user(email, password_hash)
     except Exception:
         return jsonify(
-            {"error": "Could not create your account in the database. Check DATABASE_URL and table setup."}
+            {"error": "Could not create your account. Try again in a moment."}
         ), 503
     user = AppUser(
         user_id=user_id,
@@ -1037,7 +1037,7 @@ def login():
         row = db_get_user_by_email(email)
     except Exception:
         return jsonify(
-            {"error": "Could not connect to the database. Check DATABASE_URL and that PostgreSQL is running."}
+            {"error": "Could not connect. Try again in a moment."}
         ), 503
     if not row or not check_password_hash(row["password_hash"], password):
         return jsonify({"error": "invalid credentials"}), 401
@@ -1066,9 +1066,9 @@ def logout():
 @app.route("/auth/supabase", methods=["POST"])
 def auth_supabase_session():
     if not supabase_auth_env_ready():
-        return jsonify({"error": "Supabase auth is not configured on the server"}), 503
+        return jsonify({"error": "Sign-in is not available right now."}), 503
     if not DATABASE_URL:
-        return jsonify({"error": "database not configured"}), 503
+        return jsonify({"error": "This feature is not available right now."}), 503
     data = request.get_json(silent=True) or {}
     token = str(data.get("access_token") or "").strip()
     if not token:
@@ -1089,7 +1089,7 @@ def auth_supabase_session():
         row = db_ensure_user_for_supabase(email, sub)
     except psycopg2.errors.UndefinedColumn:
         return jsonify(
-            {"error": 'Database needs migration: add column "Users".supabase_uid (see schema/add_supabase_uid.sql)'}
+            {"error": "Account sign-in is not set up on this site yet. Try again later."}
         ), 503
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -1128,7 +1128,7 @@ def account_page():
 @login_required
 def api_update_profile():
     if not _use_db():
-        return jsonify({"error": "database not configured"}), 503
+        return jsonify({"error": "This feature is not available right now."}), 503
     data = request.get_json(silent=True) or {}
     raw = data.get("username")
     if raw is None:
@@ -1657,7 +1657,7 @@ def api_delete_rating():
     if not movie_id:
         return jsonify({"error": "movie_id required"}), 400
     if not _use_db():
-        return jsonify({"error": "database not configured"}), 503
+        return jsonify({"error": "This feature is not available right now."}), 503
     try:
         deleted = db_delete_user_rating(int(current_user.id), movie_id)
         if deleted == 0:
@@ -1689,7 +1689,7 @@ def api_tmdb_search():
     if len(q) < 2:
         return jsonify([])
     if not tmdb_is_configured():
-        return jsonify({"error": "TMDB not configured"}), 503
+        return jsonify({"error": "This search feature is not set up on this site."}), 503
     try:
         data = tmdb_search_movies(q)
         results = [format_tmdb_search_result(r) for r in (data.get("results") or [])[:15]]
@@ -1704,7 +1704,7 @@ def api_tmdb_preview():
     if not tmdb_id:
         return jsonify({"error": "tmdb_id required"}), 400
     if not tmdb_is_configured():
-        return jsonify({"error": "TMDB not configured"}), 503
+        return jsonify({"error": "This search feature is not set up on this site."}), 503
     try:
         preview = preview_tmdb_import(tmdb_id, get_genres())
         return jsonify(preview)
@@ -1715,7 +1715,7 @@ def api_tmdb_preview():
 @app.route("/api/movies/from-tmdb", methods=["POST"])
 def api_movies_from_tmdb():
     if not _use_db():
-        return jsonify({"error": "database not configured"}), 503
+        return jsonify({"error": "This feature is not available right now."}), 503
     data = request.get_json(silent=True) or {}
     tmdb_id = data.get("tmdb_id")
     if tmdb_id is None:
@@ -1738,9 +1738,9 @@ def api_like_from_tmdb():
     if not current_user.is_authenticated:
         return jsonify({"error": "login required"}), 401
     if not _use_db():
-        return jsonify({"error": "database not configured"}), 503
+        return jsonify({"error": "This feature is not available right now."}), 503
     if not tmdb_is_configured():
-        return jsonify({"error": "TMDB not configured"}), 503
+        return jsonify({"error": "This search feature is not set up on this site."}), 503
     data = request.get_json(silent=True) or {}
     tmdb_id = data.get("tmdb_id")
     if tmdb_id is None:

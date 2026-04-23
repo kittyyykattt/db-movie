@@ -133,10 +133,10 @@
   <section class="search-results browse-results">
     <p class="results-count" id="results-count">
       {% if pagination.total %}
-      Showing {{ pagination.range_start }}–{{ pagination.range_end }} of {{ pagination.total }} in the catalog
-      {%- if pagination.extra_web %} · plus {{ pagination.extra_web }} from the web{% endif -%}
+      Showing {{ pagination.range_start }}–{{ pagination.range_end }} of {{ pagination.total }} films
+      {%- if pagination.extra_web %} · plus {{ pagination.extra_web }} from online search{% endif -%}
       {%- else %}
-      No catalog matches for these filters
+      No films match these filters
       {%- endif %}
       {%- if filters.q %} — title &ldquo;{{ filters.q }}&rdquo;{% endif -%}
       {%- if filters.actor %} — actor &ldquo;{{ filters.actor }}&rdquo;{% endif -%}
@@ -198,7 +198,7 @@
     </div>
 
     {% if pagination.total_pages > 1 %}
-    <nav class="browse-pagination" aria-label="Catalog pages">
+    <nav class="browse-pagination" aria-label="Result pages">
       {% set pargs = {
         'genre': filters.genre,
         'decade': filters.decade or none,

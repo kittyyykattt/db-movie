@@ -6,15 +6,9 @@
     <h1 class="account-title">My account</h1>
     {% if current_user %}
     <p class="account-email">{{ current_user.email }}</p>
-    <p class="account-auth-note">
-      {% if supabase_enabled %}
-      Sign-in is handled by <strong>Supabase Auth</strong>. Ratings stay in the MovieTrack database.
-      {% else %}
-      You are signed in to MovieTrack. Ratings are stored in the database.
-      {% endif %}
-    </p>
+    <p class="account-auth-note">You’re signed in. Your display name and star ratings below stay with your account.</p>
     {% else %}
-    <p class="account-guest-lead">Sign in to see your star ratings and history.</p>
+    <p class="account-guest-lead">Sign in to see your star ratings here.</p>
     <p class="account-actions">
       <button type="button" class="btn btn-primary" id="account-auth-open">Sign in</button>
     </p>
@@ -78,15 +72,19 @@
               <span class="account-star-val account-rating-display" title="{{ row.rating_value }} out of 5">{{ row.rating_value }}/5</span>
               <div class="account-rating-edit-panel" hidden>
                 <label class="account-rating-edit-label visually-hidden" for="account-rating-select-{{ row.movie_id }}">New rating</label>
-                <select id="account-rating-select-{{ row.movie_id }}" class="account-rating-select" data-movie-id="{{ row.movie_id }}"></select>
-                <button type="button" class="btn btn-primary btn-sm account-rating-save">Save</button>
-                <button type="button" class="btn btn-clear btn-sm account-rating-cancel">Cancel</button>
+                <select id="account-rating-select-{{ row.movie_id }}" class="account-rating-select" data-movie-id="{{ row.movie_id }}" aria-label="Select star rating"></select>
               </div>
             </td>
             <td>{{ row.rating_date.strftime('%Y-%m-%d') if row.rating_date else '—' }}</td>
             <td class="account-rating-actions-cell">
-              <button type="button" class="btn btn-clear btn-sm account-rating-edit" data-movie-id="{{ row.movie_id }}">Edit</button>
-              <button type="button" class="btn btn-clear btn-sm account-rating-delete" data-movie-id="{{ row.movie_id }}">Delete</button>
+              <div class="account-rating-actions-view">
+                <button type="button" class="btn btn-clear btn-sm account-rating-edit" data-movie-id="{{ row.movie_id }}">Edit</button>
+                <button type="button" class="btn btn-clear btn-sm account-rating-delete" data-movie-id="{{ row.movie_id }}">Delete</button>
+              </div>
+              <div class="account-rating-actions-edit" hidden>
+                <button type="button" class="btn btn-primary btn-sm account-rating-save" data-movie-id="{{ row.movie_id }}">Save</button>
+                <button type="button" class="btn btn-clear btn-sm account-rating-cancel">Cancel</button>
+              </div>
             </td>
           </tr>
           {% endfor %}
@@ -95,7 +93,7 @@
     </div>
     {% else %}
     <div class="account-empty">
-      <p>You have not rated any films yet. Open a title and use the star row on the detail page.</p>
+      <p>You haven’t rated any films yet. Rate a film on its page to add it here.</p>
       <a href="{{ url_for('index') }}" class="btn btn-clear">Browse home</a>
     </div>
     {% endif %}
@@ -169,14 +167,27 @@
 
   document.querySelectorAll('.account-rating-select').forEach(fillRatingSelect);
 
+  function setRowRatingEditMode(tr, on) {
+    var panel = tr.querySelector('.account-rating-edit-panel');
+    var display = tr.querySelector('.account-rating-display');
+    var view = tr.querySelector('.account-rating-actions-view');
+    var edit = tr.querySelector('.account-rating-actions-edit');
+    if (on) {
+      if (display) display.hidden = true;
+      if (panel) panel.hidden = false;
+      if (view) view.hidden = true;
+      if (edit) edit.hidden = false;
+    } else {
+      if (display) display.hidden = false;
+      if (panel) panel.hidden = true;
+      if (view) view.hidden = false;
+      if (edit) edit.hidden = true;
+    }
+  }
+
   function closeAllRatingEditors() {
     document.querySelectorAll('.account-ratings-table tbody tr').forEach(function(row) {
-      var panel = row.querySelector('.account-rating-edit-panel');
-      var display = row.querySelector('.account-rating-display');
-      var editBtn = row.querySelector('.account-rating-edit');
-      if (panel) panel.hidden = true;
-      if (display) display.hidden = false;
-      if (editBtn) editBtn.disabled = false;
+      setRowRatingEditMode(row, false);
     });
   }
 
@@ -191,9 +202,10 @@
       closeAllRatingEditors();
       var current = display.textContent.replace(/\/5\s*$/, '').trim();
       setSelectValue(sel, current);
-      panel.hidden = false;
-      display.hidden = true;
-      btn.disabled = true;
+      setRowRatingEditMode(tr, true);
+      window.setTimeout(function() {
+        try { sel.focus(); } catch (e) {}
+      }, 0);
     });
   });
 
@@ -201,12 +213,7 @@
     btn.addEventListener('click', function() {
       var tr = btn.closest('tr');
       if (!tr) return;
-      var panel = tr.querySelector('.account-rating-edit-panel');
-      var display = tr.querySelector('.account-rating-display');
-      var editBtn = tr.querySelector('.account-rating-edit');
-      if (panel) panel.hidden = true;
-      if (display) display.hidden = false;
-      if (editBtn) editBtn.disabled = false;
+      setRowRatingEditMode(tr, false);
     });
   });
 
@@ -215,7 +222,7 @@
       var tr = btn.closest('tr');
       if (!tr || !window.MovieAPI || !window.MovieAPI.setRating) return;
       var sel = tr.querySelector('.account-rating-select');
-      var mid = sel && sel.getAttribute('data-movie-id');
+      var mid = (sel && sel.getAttribute('data-movie-id')) || btn.getAttribute('data-movie-id');
       if (!mid || !sel) return;
       var val = parseFloat(sel.value);
       if (Number.isNaN(val)) return;
@@ -223,15 +230,10 @@
       window.MovieAPI.setRating(Number(mid), val)
         .then(function() {
           var display = tr.querySelector('.account-rating-display');
-          var panel = tr.querySelector('.account-rating-edit-panel');
-          var editBtn = tr.querySelector('.account-rating-edit');
           var label = val === Math.floor(val) ? String(val) : val.toFixed(1);
-          if (display) {
-            display.textContent = label + '/5';
-            display.hidden = false;
-          }
-          if (panel) panel.hidden = true;
-          if (editBtn) editBtn.disabled = false;
+          if (display) display.textContent = label + '/5';
+          setRowRatingEditMode(tr, false);
+          btn.disabled = false;
         })
         .catch(function(err) {
           btn.disabled = false;

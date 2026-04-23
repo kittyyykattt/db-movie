@@ -67,7 +67,7 @@
         }
         setDisplay(v === null ? null : v);
         if (hintEl) {
-          hintEl.textContent = 'Saved on this device only.';
+          hintEl.textContent = 'Saved. Sign in to add it to your account.';
           hintEl.hidden = false;
         }
         return;
@@ -88,8 +88,7 @@
               window.MovieDB.clearLocalRating(movieId);
               setDisplay(null);
               if (hintEl) {
-                hintEl.textContent =
-                  'Cleared on this device. Sign in to update your account.';
+                hintEl.textContent = 'Cleared. Sign in to update your account.';
                 hintEl.hidden = false;
               }
               return;
@@ -97,7 +96,7 @@
             if (valueText) {
               valueText.textContent =
                 err && err.status === 401
-                  ? 'Sign in to save ratings to the database.'
+                  ? 'Sign in to save your rating.'
                   : 'Could not clear rating.';
             }
           });
@@ -114,8 +113,7 @@
             window.MovieDB.setLocalRating(movieId, v);
             setDisplay(v);
             if (hintEl) {
-              hintEl.textContent =
-                'Saved on this device. Sign in (header) to store ratings in your account.';
+              hintEl.textContent = 'Saved for now. Sign in to keep it on your account.';
               hintEl.hidden = false;
             }
             return;
@@ -123,7 +121,7 @@
           if (valueText) {
             valueText.textContent =
               err && err.status === 401
-                ? 'Sign in to save ratings to the database.'
+                ? 'Sign in to save your rating.'
                 : 'Could not save rating.';
           }
         });
@@ -181,7 +179,7 @@
         if (local != null) {
           setDisplay(local);
           if (hintEl) {
-            hintEl.textContent = 'On this device only — sign in to use your account.';
+            hintEl.textContent = 'Sign in to save this rating to your account.';
             hintEl.hidden = false;
           }
         }
@@ -198,7 +196,7 @@
             setDisplay(local);
             if (hintEl) {
               hintEl.textContent =
-                'Device-only rating — sign in to sync with your account.';
+                'Showing a rating you saved while signed out. Sign in to use your account rating.';
               hintEl.hidden = false;
             }
           }
@@ -207,7 +205,7 @@
           if (local != null) {
             setDisplay(local);
             if (hintEl) {
-              hintEl.textContent = 'Could not reach server; showing device rating.';
+              hintEl.textContent = 'Can’t connect right now. A rating from this visit is shown if you had one.';
               hintEl.hidden = false;
             }
           }

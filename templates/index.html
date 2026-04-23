@@ -39,7 +39,7 @@
         </div>
       </div>
     </form>
-    <p class="hero-search-footnote"><a href="{{ url_for('all_films_page') }}">All films</a> — filter and explore the catalog</p>
+    <p class="hero-search-footnote"><a href="{{ url_for('all_films_page') }}">All films</a> — filter and explore the full list</p>
   </div>
 
   {% if search_attempted %}
@@ -102,7 +102,7 @@
     {% else %}
     <p class="results-count results-count-empty">No matches for &ldquo;{{ filters.q }}&rdquo; <span class="results-by">({{ search_by_label }})</span>.</p>
     {% if tmdb_enabled and search_by == 'title' and filters.q and filters.q|length >= 2 %}
-    <p class="tmdb-status tmdb-status-muted">No catalog or web title hits for that query.</p>
+    <p class="tmdb-status tmdb-status-muted">We didn’t find a matching title in our list or in online search. Try a different name.</p>
     {% endif %}
     {% endif %}
   </section>
@@ -113,7 +113,7 @@
 
 <section class="reco-section reveal-section">
   <h2 class="section-title">Recommended for You</h2>
-  <p class="recommendations-intro">Fresh suggestions based on your ratings and catalog data.</p>
+  <p class="recommendations-intro">Fresh suggestions based on your star ratings and tastes.</p>
   <div class="reco-carousel-shell is-loading" id="reco-carousel-shell">
     <button type="button" class="carousel-arrow carousel-arrow-left" id="reco-prev" aria-label="Scroll recommendations left">‹</button>
     <div class="reco-carousel-viewport" id="reco-carousel-viewport">
